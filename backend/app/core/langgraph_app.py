@@ -777,7 +777,12 @@ class FeverRoutingGraph:
                     logger.warning(f"Invalid urgency level '{urgency_str}' from triage agent, using ROUTINE")
                     urgency = UrgencyLevel.ROUTINE
                 new_state["urgency_level"] = urgency
-                
+
+                # Сохраняем детальную зону (5-зонная маршрутизация v2)
+                triage_zone = parsed_data.get("triage_zone")
+                if triage_zone:
+                    new_state["triage_zone"] = triage_zone
+
                 # Обновление активированных специалистов
                 activated_agents = parsed_data.get("activate_agents", [])
                 # Приводим к верхнему регистру для consistency
@@ -1346,13 +1351,16 @@ class FeverRoutingGraph:
         """Выполнение узла специалиста для параллельного запуска (без добавления сообщений)"""
         logger.info(f"=== {agent_name.upper()} NODE (PARALLEL) STARTED ===")
         session_id = state.get('session_id', 'unknown')
-        
+
         try:
-            # Подготовка контекста
+            # Подготовка контекста — специалист видит триаж и гипотезы (1.4)
             context = {
-                "patient_data": state["patient_data"]
+                "patient_data": state["patient_data"],
+                "triage_output": state.get("triage_output") or {},
+                "hypotheses": state.get("hypotheses") or [],
+                "most_likely_diagnosis": state.get("most_likely_diagnosis"),
             }
-            
+
             # Вызов агента
             client = await get_ai_studio_client()
             result = await client.call_agent(
@@ -1375,7 +1383,7 @@ class FeverRoutingGraph:
                     confidence=1.0,
                     execution_time_ms=result.get("execution_time_ms")
                 )
-                
+                increment_cost_units(new_state)
                 logger.info(f"{agent_name.upper()} agent completed successfully")
             else:
                 error_msg = f"{agent_name.upper()} agent failed: {result.get('error', 'Unknown error')}"

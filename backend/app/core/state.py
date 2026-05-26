@@ -26,6 +26,15 @@ class UrgencyLevel(str, Enum):
     ROUTINE = "routine"
 
 
+class TriageZone(str, Enum):
+    """Пятизонная маршрутизация (v2)"""
+    EMERGENCY = "emergency"                        # 🔴 Скорая
+    HOSPITALIZATION = "hospitalization"            # 🟠А Госпитализация
+    LABORATORY_OUTPATIENT = "laboratory_outpatient"  # 🟠Б ЛБОИ — лаборатория амбулаторно
+    PEDIATRICIAN_24H = "pediatrician_24h"          # 🟡 Педиатр в течение 24 ч
+    HOME = "home"                                  # 🟢 Домой
+
+
 class TemperaturePattern(str, Enum):
     """Паттерны температуры"""
     CONSTANT = "постоянная"
@@ -91,6 +100,7 @@ class GraphState(TypedDict):
     
     # Управление потоком
     urgency_level: Optional[UrgencyLevel]
+    triage_zone: Optional[str]  # TriageZone: пятизонная маршрутизация
     activated_specialists: List[str]
     questions_to_ask: List[Dict[str, Any]]
     needs_more_info: bool
@@ -276,6 +286,7 @@ def create_initial_state(
         "question_output": None,
         "synthesis_output": None,
         "urgency_level": None,
+        "triage_zone": None,
         "activated_specialists": [],
         "questions_to_ask": [],
         "needs_more_info": False,
