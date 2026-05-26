@@ -1,0 +1,343 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Шрифты по брендбуку Yandex Cloud (Figma: YC Brandbook).
+   Основной: Yandex Sans / Yandex Sans Text.
+   Если есть .woff2 из брендбука — раскомментируйте и укажите путь:
+   @font-face {
+     font-family: 'Yandex Sans';
+     src: url('/fonts/YandexSansText-Regular.woff2') format('woff2');
+     font-weight: 400; font-style: normal; font-display: swap;
+   }
+   Fallback: Onest (кириллица, визуально близок к гротеску). */
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700&display=swap');
+
+/* Base styles */
+@layer base {
+  html {
+    /* Yandex Sans — из брендбука; Onest — fallback с кириллицей */
+    font-family:
+      'Yandex Sans',
+      'Yandex Sans Text',
+      'Onest',
+      system-ui,
+      -apple-system,
+      sans-serif;
+  }
+
+  body {
+    @apply text-gray-900 antialiased;
+    /* Согласовано с экранами Home/About/History (PageDoodleBackground): тот же верхний тон, что у from-[#F0F4F8] */
+    background: linear-gradient(
+      to bottom,
+      #f0f4f8 0%,
+      #ffffff 55%,
+      #ffffff 100%
+    );
+    min-height: 100vh;
+  }
+
+  * {
+    @apply border-gray-200;
+  }
+}
+
+/* Component styles */
+@layer components {
+  /* Medical theme colors */
+  .medical-primary {
+    @apply bg-medical-blue text-white;
+  }
+
+  .medical-secondary {
+    @apply bg-medical-lightblue text-medical-blue;
+  }
+
+  .medical-success {
+    @apply bg-medical-green text-white;
+  }
+
+  .medical-success-secondary {
+    @apply bg-medical-lightgreen text-medical-green;
+  }
+
+  .medical-danger {
+    @apply bg-medical-red text-white;
+  }
+
+  .medical-danger-secondary {
+    @apply bg-medical-lightred text-medical-red;
+  }
+
+  /* Button styles */
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply btn medical-primary hover:bg-blue-700 focus:ring-medical-blue;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500;
+  }
+
+  .btn-success {
+    @apply btn medical-success hover:bg-green-600 focus:ring-medical-green;
+  }
+
+  .btn-danger {
+    @apply btn medical-danger hover:bg-red-600 focus:ring-medical-red;
+  }
+
+  .btn-outline {
+    @apply btn border-2 border-medical-blue text-medical-blue hover:bg-medical-blue hover:text-white focus:ring-medical-blue;
+  }
+
+  /* Card styles */
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+  }
+
+  .card-header {
+    @apply border-b border-gray-200 pb-4 mb-4;
+  }
+
+  .card-title {
+    @apply text-lg font-semibold text-gray-900;
+  }
+
+  .card-description {
+    @apply text-sm text-gray-600 mt-1;
+  }
+
+  /* Form styles */
+  .form-group {
+    @apply mb-4;
+  }
+
+  .form-label {
+    @apply block text-sm font-medium text-gray-700 mb-2;
+  }
+
+  .form-input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-medical-blue focus:border-transparent;
+  }
+
+  .form-input-error {
+    @apply border-red-300 focus:ring-red-500;
+  }
+
+  .form-error {
+    @apply text-sm text-red-600 mt-1;
+  }
+
+  /* Chat styles */
+  .chat-container {
+    @apply flex flex-col h-full bg-white rounded-xl shadow-sm border border-gray-200;
+  }
+
+  .chat-header {
+    @apply px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl;
+  }
+
+  .chat-messages {
+    @apply flex-1 overflow-y-auto p-6 space-y-4;
+  }
+
+  .chat-input-container {
+    @apply px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl;
+  }
+
+  .message {
+    @apply max-w-xs lg:max-w-md;
+  }
+
+  .message-user {
+    @apply ml-auto bg-medical-blue text-white rounded-2xl rounded-br-sm;
+  }
+
+  .message-assistant {
+    @apply mr-auto bg-gray-100 text-gray-900 rounded-2xl rounded-bl-sm;
+  }
+
+  /* Agent status styles */
+  .agent-card {
+    @apply bg-white rounded-lg border border-gray-200 p-4 transition-all duration-200;
+  }
+
+  .agent-card-idle {
+    @apply border-gray-200;
+  }
+
+  .agent-card-processing {
+    @apply border-blue-300 bg-blue-50;
+  }
+
+  .agent-card-completed {
+    @apply border-green-300 bg-green-50;
+  }
+
+  .agent-card-error {
+    @apply border-red-300 bg-red-50;
+  }
+
+  .agent-status-indicator {
+    @apply w-3 h-3 rounded-full mr-2;
+  }
+
+  .agent-status-idle {
+    @apply bg-gray-400;
+  }
+
+  .agent-status-processing {
+    @apply bg-blue-500 animate-pulse;
+  }
+
+  .agent-status-completed {
+    @apply bg-green-500;
+  }
+
+  .agent-status-error {
+    @apply bg-red-500;
+  }
+
+  /* Progress bar styles */
+  .progress-bar {
+    @apply w-full bg-gray-200 rounded-full h-2;
+  }
+
+  .progress-fill {
+    @apply bg-medical-blue h-2 rounded-full transition-all duration-300;
+  }
+
+  /* Loading styles */
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-gray-300 border-t-medical-blue;
+  }
+
+  /* Notification styles */
+  .notification {
+    @apply fixed top-4 right-4 max-w-sm p-4 rounded-lg shadow-lg border transform transition-all duration-300 z-50;
+  }
+
+  .notification-success {
+    @apply bg-green-50 border-green-200 text-green-800;
+  }
+
+  .notification-error {
+    @apply bg-red-50 border-red-200 text-red-800;
+  }
+
+  .notification-warning {
+    @apply bg-yellow-50 border-yellow-200 text-yellow-800;
+  }
+
+  .notification-info {
+    @apply bg-blue-50 border-blue-200 text-blue-800;
+  }
+
+  /* Specialist card styles */
+  .specialist-card {
+    @apply bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow duration-200;
+  }
+
+  .specialist-avatar {
+    @apply w-12 h-12 rounded-full bg-medical-lightblue flex items-center justify-center text-medical-blue font-semibold;
+  }
+
+  /* Responsive utilities */
+  .container-medical {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Animation utilities */
+  .fade-in {
+    @apply animate-fade-in;
+  }
+
+  .slide-up {
+    @apply animate-slide-up;
+  }
+
+  .pulse-slow {
+    @apply animate-pulse-slow;
+  }
+}
+
+/* Custom animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Apply custom animations */
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.3s ease-out;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 2s ease-in-out infinite;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-break-before {
+    page-break-before: always;
+  }
+
+  .print-break-after {
+    page-break-after: always;
+  }
+}
+
+/* Dark mode support (optional) */
+@media (prefers-color-scheme: dark) {
+  .dark-mode {
+    @apply bg-gray-900 text-gray-100;
+  }
+
+  .dark-mode .card {
+    @apply bg-gray-800 border-gray-700;
+  }
+
+  .dark-mode .form-input {
+    @apply bg-gray-700 border-gray-600 text-gray-100;
+  }
+}

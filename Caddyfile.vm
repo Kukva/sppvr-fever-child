@@ -1,0 +1,6 @@
+# HTTPS через Caddy: Let's Encrypt (порты 80 и 443 должны быть открыты с интернета).
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
+
+diagnostika-lihoradok.social-project.ru {
+    reverse_proxy frontend:80
+}

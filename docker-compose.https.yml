@@ -1,0 +1,21 @@
+# Опциональный HTTPS-прокси для ВМ (микрофон работает только по HTTPS).
+# Использование на ВМ:
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
+# Порт 80 нужен для ACME (Let's Encrypt). Сайт: https://diagnostika-lihoradok.social-project.ru
+
+services:
+  https-proxy:
+    image: caddy:2-alpine
+    container_name: fever_https_proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.vm:/etc/caddy/Caddyfile:ro
+    networks:
+      - fever_network
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    profiles:
+      - https
