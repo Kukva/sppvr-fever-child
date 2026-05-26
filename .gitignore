@@ -402,3 +402,6 @@ cython_debug/
 
 # Архивы деплоя на ВМ с ключами (.env внутри) — не коммитить
 fiber-vm-deploy-*.tar.gz
+
+# Материалы PM — не публиковать
+additions/
