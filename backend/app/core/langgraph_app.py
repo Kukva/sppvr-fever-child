@@ -1234,6 +1234,7 @@ class FeverRoutingGraph:
                     new_state, "hypothesis_generator", parsed_data,
                     confidence=1.0, execution_time_ms=result.get("execution_time_ms")
                 )
+                increment_cost_units(new_state)
                 logger.info(f"HYPOTHESIS_GENERATOR (parallel) completed: {len(new_state['hypotheses'])} hypotheses")
             else:
                 logger.warning(f"HYPOTHESIS_GENERATOR (parallel) failed: {result.get('error')}")
@@ -1268,6 +1269,14 @@ class FeverRoutingGraph:
         if new_state.get("specialists_executed", False):
             logger.info("Specialists already executed, skipping parallel execution")
             return new_state
+
+        # Budgeted режим: пропускаем специалистов если лимит исчерпан
+        if state.get("run_mode") == "budgeted":
+            max_units = state.get("max_cost_units")
+            used_units = state.get("total_cost_units", 0)
+            if max_units is not None and used_units >= max_units:
+                logger.info(f"Budget exhausted ({used_units}/{max_units}), skipping specialists")
+                return new_state
         
         # Запускаем hypothesis_generator и всех специалистов параллельно
         specialist_mapping = {
