@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { PaperAirplaneIcon, ExclamationTriangleIcon, WifiIcon, SignalSlashIcon, ArrowPathIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
-import { MicrophoneIcon as MicrophoneIconSolid } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, ExclamationTriangleIcon, WifiIcon, SignalSlashIcon, ArrowPathIcon, MicrophoneIcon, SpeakerWaveIcon, SpeakerXMarkIcon } from '@heroicons/react/24/outline';
+import { MicrophoneIcon as MicrophoneIconSolid, SpeakerWaveIcon as SpeakerWaveIconSolid } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
 import type { ChatMessage } from '../types';
 import { InlineClinicalSources } from './InlineClinicalSources';
@@ -35,10 +35,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isAssistantTyping, setIsAssistantTyping] = useState(false);
   const [showConnectionError, setShowConnectionError] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<unknown>(null);
+  const lastSpokenMessageIdRef = useRef<string | null>(null);
 
   const scrollMessagesToBottom = useCallback(() => {
     const el = messagesScrollRef.current;
@@ -123,6 +126,63 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [isListening]);
 
+  // TTS: убираем markdown-разметку перед озвучкой
+  const stripMarkdown = (text: string): string =>
+    text
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`[^`]*`/g, '')
+      .replace(/#{1,6}\s+/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^[-*+]\s+/gm, '')
+      .replace(/^\d+\.\s+/gm, '')
+      .replace(/\|[^\n]+\|/g, '')
+      .replace(/\n{2,}/g, '. ')
+      .replace(/\n/g, ' ')
+      .trim();
+
+  const stopSpeaking = useCallback(() => {
+    window.speechSynthesis?.cancel();
+    setSpeakingMessageId(null);
+  }, []);
+
+  const speakText = useCallback((text: string, messageId: string) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const clean = stripMarkdown(text);
+    const sentences = clean.match(/[^.!?]+[.!?]+/g) ?? [clean];
+    const chunks: string[] = [];
+    let buf = '';
+    for (const s of sentences) {
+      if ((buf + s).length <= 150) { buf += s; }
+      else { if (buf) chunks.push(buf.trim()); buf = s; }
+    }
+    if (buf.trim()) chunks.push(buf.trim());
+    setSpeakingMessageId(messageId);
+    let i = 0;
+    const next = () => {
+      if (i >= chunks.length) { setSpeakingMessageId(null); return; }
+      const utt = new SpeechSynthesisUtterance(chunks[i++]);
+      utt.lang = 'ru-RU';
+      utt.rate = 0.9;
+      utt.onend = next;
+      utt.onerror = () => setSpeakingMessageId(null);
+      window.speechSynthesis.speak(utt);
+    };
+    next();
+  }, []);
+
+  // Автоозвучка новых сообщений ассистента при включённом TTS
+  useEffect(() => {
+    if (!ttsEnabled || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last.sender !== 'assistant') return;
+    if (last.id === lastSpokenMessageIdRef.current) return;
+    lastSpokenMessageIdRef.current = last.id;
+    speakText(last.content ?? '', last.id);
+  }, [messages, ttsEnabled, speakText]);
+
   // Диагностика микрофона при ?diagnose=mic
   useEffect(() => {
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('diagnose') === 'mic') {
@@ -130,11 +190,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, []);
 
-  // Остановка распознавания при размонтировании
+  // Остановка распознавания и TTS при размонтировании
   useEffect(() => {
     return () => {
       const r = recognitionRef.current as { stop?: () => void; abort?: () => void } | null;
       if (r) try { r.stop?.(); } catch { r.abort?.(); }
+      window.speechSynthesis?.cancel();
     };
   }, []);
 
@@ -299,9 +360,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               <InlineClinicalSources sources={message.clinicalSources} />
             )}
             {!isUser && (
-              <div className="mt-3 pt-3 border-t border-gray-200 flex items-start gap-2">
-                <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                <p className="text-xs font-semibold text-gray-700">{DISCLAIMER}</p>
+              <div className="mt-3 pt-3 border-t border-gray-200 flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs font-semibold text-gray-700">{DISCLAIMER}</p>
+                </div>
+                {typeof window !== 'undefined' && !!window.speechSynthesis && (
+                  <button
+                    type="button"
+                    onClick={() => speakingMessageId === message.id ? stopSpeaking() : speakText(message.content ?? '', message.id)}
+                    className={`shrink-0 p-1 rounded transition-colors ${speakingMessageId === message.id ? 'text-blue-600 hover:text-blue-800' : 'text-gray-400 hover:text-gray-600'}`}
+                    title={speakingMessageId === message.id ? 'Остановить' : 'Озвучить'}
+                  >
+                    {speakingMessageId === message.id
+                      ? <SpeakerWaveIconSolid className="w-4 h-4" />
+                      : <SpeakerWaveIcon className="w-4 h-4" />}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -320,13 +395,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       </div>
     );
-  }, [messageDeliveryStatus]);
+  }, [messageDeliveryStatus, speakingMessageId, speakText, stopSpeaking]);
 
   return (
     <div className="chat-container h-full flex flex-col">
-      {/* Chat Header — минимальный, только статус подключения */}
+      {/* Chat Header — статус подключения + TTS-флаг */}
       <div className="chat-header py-2">
         <div className="flex items-center justify-end space-x-2">
+            {/* Флаг озвучки */}
+            {typeof window !== 'undefined' && !!window.speechSynthesis && (
+              <button
+                type="button"
+                onClick={() => { setTtsEnabled(v => !v); if (ttsEnabled) stopSpeaking(); }}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${ttsEnabled ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                title={ttsEnabled ? 'Выключить озвучку' : 'Включить озвучку'}
+              >
+                {ttsEnabled ? <SpeakerWaveIconSolid className="w-4 h-4" /> : <SpeakerXMarkIcon className="w-4 h-4" />}
+                <span>{ttsEnabled ? 'Озвучка вкл' : 'Озвучка выкл'}</span>
+              </button>
+            )}
             {/* Индикатор состояния подключения */}
             <div className="flex items-center space-x-1">
               {connectionStatus === 'connected' ? (
