@@ -36,6 +36,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [showConnectionError, setShowConnectionError] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsAvailable, setTtsAvailable] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -182,6 +183,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     lastSpokenMessageIdRef.current = last.id;
     speakText(last.content ?? '', last.id);
   }, [messages, ttsEnabled, speakText]);
+
+  // Проверяем доступность speechSynthesis на клиенте
+  useEffect(() => {
+    setTtsAvailable(typeof window !== 'undefined' && 'speechSynthesis' in window);
+  }, []);
 
   // Диагностика микрофона при ?diagnose=mic
   useEffect(() => {
@@ -365,7 +371,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                   <p className="text-xs font-semibold text-gray-700">{DISCLAIMER}</p>
                 </div>
-                {typeof window !== 'undefined' && !!window.speechSynthesis && (
+                {ttsAvailable && (
                   <button
                     type="button"
                     onClick={() => speakingMessageId === message.id ? stopSpeaking() : speakText(message.content ?? '', message.id)}
@@ -403,7 +409,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <div className="chat-header py-2">
         <div className="flex items-center justify-end space-x-2">
             {/* Флаг озвучки */}
-            {typeof window !== 'undefined' && !!window.speechSynthesis && (
+            {ttsAvailable && (
               <button
                 type="button"
                 onClick={() => { setTtsEnabled(v => !v); if (ttsEnabled) stopSpeaking(); }}

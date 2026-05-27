@@ -932,17 +932,17 @@ class FeverRoutingGraph:
                 response_text = "🔍 ДИФФЕРЕНЦИАЛЬНАЯ ДИАГНОСТИКА\n\n"
                 
                 # Добавляем информацию об уверенности
-                response_text += f"📊 Диагностическая уверенность: {confidence:.1%}\n"
+                response_text += f"Диагностическая уверенность: {confidence:.1%}\n"
                 if confidence >= confidence_threshold:
-                    response_text += "✅ Достаточная уверенность для постановки диагноза\n\n"
+                    response_text += "Достаточная уверенность для постановки диагноза\n\n"
                 else:
-                    response_text += f"⚠️ Требуется больше информации для достижения порога {confidence_threshold:.1%}\n\n"
-                
+                    response_text += f"Требуется больше информации для достижения порога {confidence_threshold:.1%}\n\n"
+
                 if most_likely:
-                    response_text += f"🎯 Наиболее вероятный диагноз: {most_likely}\n\n"
-                
+                    response_text += f"Наиболее вероятный диагноз: {most_likely}\n\n"
+
                 if hypotheses:
-                    response_text += "📋 Основные гипотезы:\n"
+                    response_text += "Основные гипотезы:\n"
                     for i, hypothesis in enumerate(hypotheses[:3], 1):  # Показываем топ-3
                         diagnosis = hypothesis.get("diagnosis", "Неизвестно")
                         probability = hypothesis.get("probability", "Низкая")
@@ -954,14 +954,14 @@ class FeverRoutingGraph:
                             f"вклад в уверенность: {confidence_contrib:.1%})\n"
                         )
                     response_text += "\n"
-                
+
                 if new_state["key_discriminators"]:
-                    response_text += f"🔑 Ключевые дифференциальные признаки: {', '.join(new_state['key_discriminators'][:3])}\n"
-                
+                    response_text += f"Ключевые дифференциальные признаки: {', '.join(new_state['key_discriminators'][:3])}\n"
+
                 # Добавляем информацию о следующих шагах
                 additional_questions = parsed_data.get("additional_questions_needed", [])
                 if additional_questions and confidence < confidence_threshold:
-                    response_text += f"\n📝 Для повышения уверенности рекомендуется уточнить: {', '.join(additional_questions[:2])}"
+                    response_text += f"\nДля повышения уверенности рекомендуется уточнить: {', '.join(additional_questions[:2])}"
                 
                 new_state = add_message(new_state, "assistant", response_text)
                 
@@ -1016,7 +1016,7 @@ class FeverRoutingGraph:
                 # Формируем сообщение о завершении сбора информации (дальше — тяжёлый пайплайн: триаж, гипотезы, специалисты, синтез)
                 _analysis_notice = (
                     "\n\n"
-                    "⏱ Ориентировочно 1–3 минуты на полный цикл анализа (зависит от нагрузки и сложности случая).\n"
+                    "Ориентировочно 1–3 минуты на полный цикл анализа (зависит от нагрузки и сложности случая).\n"
                     "Сейчас по очереди выполняется: оценка срочности (триаж) → гипотезы → "
                     "при необходимости узкие специалисты → сводка и рекомендации. "
                     "Дождитесь сообщения с результатом; страницу обновлять не нужно."
@@ -1066,6 +1066,27 @@ class FeverRoutingGraph:
                 if isinstance(_labs, dict)
                 else (isinstance(_labs, str) and _labs.strip())
             )
+
+            # Явный список уже известной информации из patient_data
+            _known_symptoms = _pd.get("symptoms") or []
+            _known_anamnesis = _pd.get("anamnesis") or {}
+            _known_physical = _pd.get("physical_exam") or {}
+            _already_known: list = []
+            if isinstance(_known_symptoms, list):
+                _already_known.extend(_known_symptoms)
+            elif isinstance(_known_symptoms, str) and _known_symptoms:
+                _already_known.append(_known_symptoms)
+            if isinstance(_known_anamnesis, dict):
+                _already_known.extend(f"{k}: {v}" for k, v in _known_anamnesis.items() if v)
+            if isinstance(_known_physical, dict):
+                _already_known.extend(f"{k}: {v}" for k, v in _known_physical.items() if v)
+
+            # Тексты предыдущих вопросов агента из диалога (ассистентские реплики)
+            _recent = _recent_dialogue_for_question(state)
+            _prev_questions = [
+                m["content"] for m in _recent if m.get("role") == "assistant"
+            ]
+
             context = {
                 "current_hypotheses": {
                     "urgency_level": state["urgency_level"],
@@ -1090,20 +1111,25 @@ class FeverRoutingGraph:
                     "estimated_confidence_gain": estimated_gain,
                     "confidence_gap": confidence_threshold - diagnostic_confidence
                 },
-                "recent_dialogue": _recent_dialogue_for_question(state),
+                "recent_dialogue": _recent,
+                # Явные списки для предотвращения повторов
+                "already_known_info": _already_known,
+                "previously_asked_questions": _prev_questions,
                 "adaptive_questions": True,
                 "dialogue_mode": True,
                 "message_count": len(state.get("messages", [])),
                 "questions_asked_so_far": questions_asked_count,
             }
-            
+
             # Вызов агента: один следующий вопрос с учётом последних реплик
+            _known_str = ", ".join(_already_known[:10]) if _already_known else "нет"
             client = await get_ai_studio_client()
             result = await client.call_agent(
                 agent_name="question",
                 prompt=(
-                    f"Сформируй ровно один следующий уточняющий вопрос с учётом последних реплик диалога "
-                    f"и новых данных пациента. Не повторяй уже отвеченное. "
+                    f"Сформируй ровно один следующий уточняющий вопрос. "
+                    f"УЖЕ ИЗВЕСТНО (не спрашивать повторно): {_known_str}. "
+                    f"УЖЕ ЗАДАНО {len(_prev_questions)} вопросов — темы из already_known_info и previously_asked_questions НЕ повторять. "
                     f"Уверенность: {diagnostic_confidence:.1%}, сложность: {case_complexity}."
                 ),
                 context=context
@@ -1711,24 +1737,24 @@ class FeverRoutingGraph:
                 
                 # Формирование финального ответа
                 primary = new_state["primary_specialist"]
-                response_text = "🏥 РЕКОМЕНДАЦИИ ПО МАРШРУТИЗАЦИИ\n\n"
-                response_text += f"📊 Уровень срочности: {parsed_data.get('urgency_level', 'routine').upper()}\n\n"
-                response_text += f"👨‍⚕️ Основной специалист: {primary.get('name', 'Не определен')}\n"
-                response_text += f"📋 Причины: {', '.join(primary.get('reasons', []))}\n\n"
-                
+                response_text = "РЕКОМЕНДАЦИИ ПО МАРШРУТИЗАЦИИ\n\n"
+                response_text += f"Уровень срочности: {parsed_data.get('urgency_level', 'routine').upper()}\n\n"
+                response_text += f"Основной специалист: {primary.get('name', 'Не определен')}\n"
+                response_text += f"Причины: {', '.join(primary.get('reasons', []))}\n\n"
+
                 if new_state["additional_specialists"]:
-                    response_text += "👥 Дополнительные консультации:\n"
+                    response_text += "Дополнительные консультации:\n"
                     for spec in new_state["additional_specialists"]:
-                        response_text += f"• {spec.get('name', 'Не определен')}\n"
+                        response_text += f"- {spec.get('name', 'Не определен')}\n"
                     response_text += "\n"
-                
+
                 if new_state["required_tests"]:
-                    response_text += "🧪 Рекомендуемые обследования:\n"
+                    response_text += "Рекомендуемые обследования:\n"
                     for test in new_state["required_tests"]:
-                        response_text += f"• {test}\n"
+                        response_text += f"- {test}\n"
                     response_text += "\n"
-                
-                response_text += f"📄 Полные рекомендации доступны в PDF отчете."
+
+                response_text += "Полные рекомендации доступны в PDF отчете."
                 
                 new_state = add_message(new_state, "assistant", response_text)
                 logger.info("SYNTHESIS agent completed successfully")
@@ -1770,7 +1796,7 @@ class FeverRoutingGraph:
             
             # Формируем сообщение с запросом обратной связи
             feedback_message = "\n\n" + "="*50 + "\n"
-            feedback_message += "📝 ОБРАТНАЯ СВЯЗЬ\n"
+            feedback_message += "ОБРАТНАЯ СВЯЗЬ\n"
             feedback_message += "="*50 + "\n\n"
             feedback_message += "Помогите нам улучшить систему! Пожалуйста, ответьте на два вопроса:\n\n"
             feedback_message += "1. Была ли вам полезна эта рекомендация? (да/нет)\n"
@@ -2601,11 +2627,11 @@ class FeverRoutingGraph:
                                 name = primary.get("name") or "Специалист"
                                 timeframe = primary.get("timeframe") or ""
                                 purpose = primary.get("purpose") or ""
-                                header = f"📋 **Рекомендуемое направление: {name}**"
+                                header = f"**Рекомендуемое направление: {name}**"
                                 if timeframe:
-                                    header += f"\n⏱ Сроки: {timeframe}"
+                                    header += f"\nСроки: {timeframe}"
                                 if purpose:
-                                    header += f"\n🎯 Цель: {purpose}"
+                                    header += f"\nЦель: {purpose}"
                                 header += "\n\n"
                             response_data["response"] = header + rec_text + "\n\n" + last_assistant_message
                             logger.info("Response includes recommendation text before feedback block")
