@@ -134,7 +134,29 @@ def print_results_table(results, summary):
     print(f"\nOverall pass rate (all criteria >= {PASS_THRESHOLD}): {overall:.1%}\n")
 
 
-async def run_benchmark(use_llm_judge=True, limit=None):
+async def get_live_output(input_text: str, run_mode: str = "instant") -> str:
+    """Прогнать кейс через реальный граф и вернуть финальный ответ ассистента."""
+    import uuid
+    from app.core.langgraph_app import MedicalRoutingGraph
+    from app.core.state import create_initial_state
+
+    graph = MedicalRoutingGraph()
+    session_id = str(uuid.uuid4())
+    state = create_initial_state(session_id=session_id, run_mode=run_mode)
+
+    result = await graph.process_message(
+        session_id=session_id,
+        message=input_text,
+    )
+    # Берём последнее сообщение ассистента из финального состояния
+    messages = result.get("messages") or []
+    assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+    if not assistant_msgs:
+        return "[no assistant output]"
+    return assistant_msgs[-1].get("content", "[empty]")
+
+
+async def run_benchmark(use_llm_judge=True, limit=None, live=False):
     cases = load_eval_cases(limit=limit)
     if not cases:
         return {"error": "No cases loaded", "results": [], "timestamp": datetime.now().isoformat()}
@@ -143,18 +165,32 @@ async def run_benchmark(use_llm_judge=True, limit=None):
     for case in cases:
         case_id = case.get("id", "unknown")
         input_text = case.get("input_text", "")
-        agent_output = case.get("mock_output") or f"[Mock output for {case_id}]"
+
+        # Live-режим: реальный граф; иначе mock_output
+        if live:
+            print(f"  [{case_id}] calling live graph...")
+            try:
+                agent_output = await get_live_output(input_text)
+            except Exception as e:
+                agent_output = f"[live error: {e}]"
+                print(f"  [{case_id}] LIVE ERROR: {e}")
+        else:
+            agent_output = case.get("mock_output") or f"[Mock output for {case_id}]"
+
         record = {
             "case_id": case_id,
             "input_text": input_text[:200],
             "expected_urgency": case.get("expected_urgency"),
             "expected_specialist": case.get("expected_specialist"),
-            "mock_quality": case.get("mock_quality"),
+            "expected_reasoning": case.get("expected_reasoning", ""),
+            "zero_tolerance": case.get("zero_tolerance", False),
+            "mock_quality": case.get("mock_quality", "live" if live else "mock"),
+            "live_output": agent_output if live else None,
             "scores": {},
             "reasons": {},
             "pass_fail": {},
         }
-        if use_llm_judge and input_text:
+        if use_llm_judge and input_text and agent_output and not agent_output.startswith("["):
             try:
                 from app.core.llm_judge import (
                     evaluate_with_llm_judge,
@@ -183,12 +219,13 @@ async def run_benchmark(use_llm_judge=True, limit=None):
             except Exception as e:
                 record["error"] = str(e)
         results.append(record)
-        print(f"  [{case_id}] done ({case.get('mock_quality', '?')})")
+        print(f"  [{case_id}] done")
 
     summary = _compute_summary(results)
     return {
         "timestamp": datetime.now().isoformat(),
         "use_llm_judge": use_llm_judge,
+        "live_mode": live,
         "num_cases": len(results),
         "pass_threshold": PASS_THRESHOLD,
         "summary": summary,
@@ -199,15 +236,21 @@ async def run_benchmark(use_llm_judge=True, limit=None):
 def main():
     parser = argparse.ArgumentParser(description="Run evaluation benchmark")
     parser.add_argument("--no-llm", action="store_true", help="Skip LLM judge calls")
+    parser.add_argument("--live", action="store_true", help="Run real graph instead of mock_output")
+    parser.add_argument("--capture", action="store_true", help="Capture live outputs without LLM judge (для записи baseline)")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of cases")
     parser.add_argument("--out", type=str, default=None, help="Output JSON path")
     args = parser.parse_args()
 
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = args.out or ARTIFACTS_DIR / f"benchmark_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    live_mode = args.live or args.capture
+    use_judge = not args.no_llm and not args.capture
 
-    print(f"Running benchmark ({'no LLM' if args.no_llm else '6 criteria × LLM judge'})...")
-    payload = asyncio.run(run_benchmark(use_llm_judge=not args.no_llm, limit=args.limit))
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = "live" if live_mode else "mock"
+    out_path = args.out or ARTIFACTS_DIR / f"benchmark_{suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+    print(f"Running benchmark (mode={'live' if live_mode else 'mock'}, judge={'yes' if use_judge else 'no'})...")
+    payload = asyncio.run(run_benchmark(use_llm_judge=use_judge, limit=args.limit, live=live_mode))
 
     print_results_table(payload.get("results", []), payload.get("summary", {}))
 
