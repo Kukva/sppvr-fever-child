@@ -1,20 +1,20 @@
 # Мультиагентная система маршрутизации детей с лихорадкой
 
-## 📋 Описание проекта
+## Описание проекта
 
 Интеллектуальная система на базе LangGraph для помощи врачам в диагностике и маршрутизации детей с лихорадкой к профильным специалистам и благотворительным фондам.
 
-## 🎯 Ключевые возможности
+## Ключевые возможности
 
-- ✅ **Структурированный сбор данных** о пациенте через диалог
-- ✅ **Контекстная память** - система помнит всю историю диалога
-- ✅ **8 специализированных агентов** для комплексного анализа
-- ✅ **Дифференциальная диагностика** по 4 направлениям
-- ✅ **Рекомендации по маршрутизации** к узким специалистам
-- ✅ **Экспорт результатов** в PDF
-- ✅ **Мониторинг и логирование** работы системы
+- **Структурированный сбор данных** о пациенте через диалог
+- **Контекстная память** - система помнит всю историю диалога
+- **8 специализированных агентов** для комплексного анализа
+- **Дифференциальная диагностика** по 4 направлениям
+- **Рекомендации по маршрутизации** к узким специалистам
+- **Экспорт результатов** в PDF
+- **Мониторинг и логирование** работы системы
 
-## 🏗️ Архитектура
+## Архитектура
 
 ### Компоненты системы
 
@@ -59,7 +59,7 @@ graph TD
     SYNTHESIS --> END([Рекомендации])
 ```
 
-## 📁 Структура проекта
+## Структура проекта
 
 ```
 fever-routing-system/
@@ -98,7 +98,7 @@ fever-routing-system/
 └── README.md
 ```
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
 ### Предварительные требования
 
@@ -106,9 +106,7 @@ fever-routing-system/
 - Docker Compose 2.20+
 - Yandex Cloud аккаунт с доступом к AI Studio
 
-### 🔑 Получение ключей Yandex Cloud
-
-**Обязательно прочитайте [YANDEX_CLOUD_SETUP.md](./YANDEX_CLOUD_SETUP.md)**
+### Получение ключей Yandex Cloud
 
 Для работы системы нужны:
 
@@ -190,21 +188,21 @@ curl http://localhost:8000/health
 - **Prometheus**: http://localhost:9090
 - **Grafana**: http://localhost:3001 (admin/admin)
 
-## 📚 Документация
+## Документация
 
 ### Настройка и развертывание
 
-1. **[YANDEX_CLOUD_SETUP.md](./YANDEX_CLOUD_SETUP.md)** - 🔑 Подробная инструкция по получению ключей Yandex Cloud
-2. **[QUICK_START.md](./QUICK_START.md)** - 🚀 Быстрый старт за 5 минут
-3. **[DEVELOPMENT.md](./DEVELOPMENT.md)** - 🛠️ Руководство для разработчиков
-4. **[PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md)** - 📋 Полный обзор проекта
+1. **[YANDEX_CLOUD_SETUP.md](./YANDEX_CLOUD_SETUP.md)** - Подробная инструкция по получению ключей Yandex Cloud
+2. **[QUICK_START.md](./QUICK_START.md)** - Быстрый старт за 5 минут
+3. **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Руководство для разработчиков
+4. **[PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md)** - Полный обзор проекта
 
 ### Архитектурная документация
 
 1. **[architecture_plan.md](architecture_plan.md)** - Общая архитектура, LangGraph, интеграция с AI Studio
 2. **[architecture_plan_part2.md](architecture_plan_part2.md)** - База данных, логирование, мониторинг, PDF экспорт
 3. **[architecture_plan_part3.md](architecture_plan_part3.md)** - Развертывание, требования, roadmap
-4. **[ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md)** - 📊 8 детальных диаграмм архитектуры
+4. **[ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md)** - 8 детальных диаграмм архитектуры
 
 ### API документация
 
@@ -217,7 +215,7 @@ curl http://localhost:8000/health
 - `GET /api/v1/sessions/{session_id}/recommendations` - Получение рекомендаций
 - `POST /api/v1/export/pdf/{session_id}` - Экспорт в PDF
 
-## 🔧 Конфигурация агентов
+## Конфигурация агентов
 
 ### Идентификаторы моноагентов в AI Studio
 
@@ -232,7 +230,7 @@ curl http://localhost:8000/health
 | QUESTION | `gpt://YOUR_FOLDER_ID/qwen3-235b-a22b-fp8/latest` | `YOUR_QUESTION_AGENT_ID` |
 | SYNTHESIS | `gpt://YOUR_FOLDER_ID/qwen3-235b-a22b-fp8/latest` | `YOUR_SYNTHESIS_AGENT_ID` |
 
-## 🧪 Тестирование
+## Тестирование
 
 ```bash
 # Запуск тестов backend
@@ -245,7 +243,7 @@ docker-compose run --rm backend pytest --cov=app --cov-report=html
 cd frontend && npm test
 ```
 
-## 📊 Мониторинг
+## Мониторинг
 
 ### Prometheus метрики
 
@@ -265,14 +263,14 @@ cd frontend && npm test
 - API Metrics - Метрики API
 - Database Performance - Производительность БД
 
-## 🔒 Безопасность
+## Безопасность
 
 - Все пароли хранятся в `.env` файле (не коммитится в git)
 - API ключи передаются через переменные окружения
 - PostgreSQL доступна только внутри Docker сети
 - Планируется добавление аутентификации в следующих версиях
 
-## 🛠️ Обслуживание
+## Обслуживание
 
 ### Просмотр логов
 
