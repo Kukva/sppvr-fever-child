@@ -134,6 +134,8 @@ description: Профильный агент для анализа редких 
   "pathognomonic_features_to_look_for": [],
   "specialized_tests": [],
   "need_genetic_counseling": false,
+  "recommended_urgency": "emergency/urgent/routine",
+  "confidence": 0.0,
   "reasoning": "Кратко: почему рассматриваются редкие причины",
   "sources": [
     {

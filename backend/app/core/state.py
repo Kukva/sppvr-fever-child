@@ -65,6 +65,7 @@ class PatientData(TypedDict):
     """Структурированные данные о пациенте"""
     age_years: Optional[int]
     age_months: Optional[int]
+    age_weeks: Optional[int]
     temperature_current: Optional[float]
     temperature_max: Optional[float]
     temperature_pattern: Optional[str]
@@ -183,6 +184,9 @@ class GraphState(TypedDict):
     # Флаги оптимизации выполнения
     is_simple_case: Optional[bool]       # True для routine-случаев с высокой уверенностью (пропускаем специалистов)
     specialists_executed: Optional[bool] # True после параллельного прогона специалистов в route_to_specialists_node
+
+    # Консенсус специалистов
+    specialist_consensus: Optional[Dict[str, Any]]  # результат calculate_weighted_consensus()
 
 
 class TriageOutput(TypedDict):
@@ -352,6 +356,7 @@ def create_initial_state(
         "max_cost_units": _max_cost,
         "clinical_score": None,
         "biphasic_fever_detected": False,
+        "specialist_consensus": None,
     }
 
 
@@ -442,16 +447,21 @@ def extract_red_flags_from_patient_data(patient_data: PatientData) -> List[str]:
     # Возрастные красные флаги
     age_years = _to_num(patient_data.get("age_years"))
     age_months = _to_num(patient_data.get("age_months"))
+    age_weeks = _to_num(patient_data.get("age_weeks"))
     temp_current = _to_num(patient_data.get("temperature_current"))
 
-    # Проверяем общий возраст в месяцах
-    total_months = age_years * 12 + age_months
+    # Возраст в месяцах: если указаны недели — конвертируем точно (1 мес ≈ 4.33 нед)
+    if age_weeks > 0 and age_months == 0 and age_years == 0:
+        total_months = age_weeks / 4.33
+    else:
+        total_months = age_years * 12 + age_months
 
     if total_months < 12 and temp_current > 38.0:
         red_flags.append("Возраст < 1 года с температурой > 38°C")
 
-    if total_months < 3 and temp_current > 38.5:
-        red_flags.append("Возраст < 3 месяцев с температурой > 38.5°C")
+    # Для младенцев < 3 мес (< 12 нед) любая лихорадка ≥ 38.0 — скрытая бактериемия
+    if total_months < 3 and temp_current >= 38.0:
+        red_flags.append("Возраст < 3 месяцев с лихорадкой — риск скрытой бактериемии")
 
     # Температурные красные флаги
     temp_max = _to_num(patient_data.get("temperature_max"))

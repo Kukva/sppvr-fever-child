@@ -107,6 +107,8 @@ description: Профильный агент для выявления онко�
   "red_flags_present": [],
   "urgent_investigations": [],
   "specialist_referral_needed": true,
+  "recommended_urgency": "emergency/urgent/routine",
+  "confidence": 0.0,
   "reasoning": "Кратко: обоснование уровня риска",
   "sources": [
     {

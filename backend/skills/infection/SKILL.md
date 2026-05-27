@@ -174,6 +174,8 @@ description: Профильный агент для анализа инфекц�
   "most_likely": "",
   "cannot_exclude": [],
   "questions_needed": [],
+  "recommended_urgency": "emergency/urgent/routine",
+  "confidence": 0.0,
   "reasoning": "Кратко: логика дифференциального ряда",
   "sources": [
     {

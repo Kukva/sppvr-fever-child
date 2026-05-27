@@ -143,6 +143,8 @@ description: Профильный агент для анализа иммуно�
   "key_discriminators": [],
   "specific_tests_needed": [],
   "treatment_considerations": [],
+  "recommended_urgency": "emergency/urgent/routine",
+  "confidence": 0.0,
   "reasoning": "Кратко: почему учтены иммуновоспалительные причины",
   "sources": [
     {

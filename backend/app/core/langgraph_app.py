@@ -1425,13 +1425,15 @@ class FeverRoutingGraph:
             
             if result.get("success") and result.get("parsed_data"):
                 parsed_data = result["parsed_data"]
-                
+
+                agent_confidence = _coerce_unit_interval(parsed_data.get("confidence"), 0.7)
+
                 # Добавление результата агента
                 new_state = add_agent_output(
                     new_state,
                     agent_name,
                     parsed_data,
-                    confidence=1.0,
+                    confidence=agent_confidence,
                     execution_time_ms=result.get("execution_time_ms")
                 )
                 increment_cost_units(new_state)
@@ -1506,13 +1508,15 @@ class FeverRoutingGraph:
             
             if result.get("success") and result.get("parsed_data"):
                 parsed_data = result["parsed_data"]
-                
+
+                agent_confidence = _coerce_unit_interval(parsed_data.get("confidence"), 0.7)
+
                 # Добавление результата агента
                 new_state = add_agent_output(
                     new_state,
                     agent_name,
                     parsed_data,
-                    confidence=1.0,
+                    confidence=agent_confidence,
                     execution_time_ms=result.get("execution_time_ms")
                 )
                 
@@ -1561,35 +1565,48 @@ class FeverRoutingGraph:
         try:
             # Проверка на простой случай
             is_simple_case = state.get("is_simple_case", False)
-            
+
+            # Консенсус специалистов (до сбора контекста)
+            from app.core.consensus import calculate_weighted_consensus
+            consensus = calculate_weighted_consensus(state)
+            new_state_pre = state.copy()
+            new_state_pre["specialist_consensus"] = consensus
+            state = new_state_pre
+            if consensus["participating"]:
+                logger.info(
+                    f"Specialist consensus: {consensus['consensus_urgency']}, "
+                    f"conflict={consensus['conflict']}, votes={consensus['votes']}"
+                )
+
             # Сбор всех результатов агентов
             all_outputs = {}
             for agent_name in ["intake", "triage"]:
                 output = state.get(f"{agent_name}_output")
                 if output:
                     all_outputs[agent_name] = output
-            
+
             # Для простых случаев не включаем результаты специалистов и гипотез
             if not is_simple_case:
                 for agent_name in ["infection", "immune", "oncology", "rare_disease"]:
                     output = state.get(f"{agent_name}_output")
                     if output:
                         all_outputs[agent_name] = output
-                
+
                 # Добавляем гипотезы если есть
                 hypotheses = state.get("hypotheses", [])
                 if hypotheses:
                     all_outputs["hypotheses"] = hypotheses
-            
+
             logger.info(f"Collected outputs from {len(all_outputs)} agents: {list(all_outputs.keys())}")
             if is_simple_case:
                 logger.info("Simple case: synthesis will work with intake and triage only")
-            
+
             # Подготовка контекста
             context = {
                 "all_agent_outputs": all_outputs,
                 "patient_data": state["patient_data"],
-                "urgency_level": state["urgency_level"]
+                "urgency_level": state["urgency_level"],
+                "specialist_consensus": consensus,
             }
             
             # Вызов агента
@@ -2377,6 +2394,7 @@ class FeverRoutingGraph:
             age_data = intake_result["patient_age"]
             updated["age_years"] = age_data.get("years")
             updated["age_months"] = age_data.get("months")
+            updated["age_weeks"] = age_data.get("weeks")
         
         # Обновление температуры
         if "temperature" in intake_result:
