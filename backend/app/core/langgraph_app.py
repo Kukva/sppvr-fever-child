@@ -16,7 +16,8 @@ from app.core.state import (
     update_patient_data, add_message, increment_cost_units,
     UrgencyLevel, extract_red_flags_from_patient_data, determine_urgency_from_red_flags,
     calculate_case_complexity, update_diagnostic_confidence, should_continue_questions,
-    calculate_max_questions, calculate_question_priority, estimate_confidence_gain
+    calculate_max_questions, calculate_question_priority, estimate_confidence_gain,
+    detect_biphasic_fever
 )
 from app.core.ai_studio import get_ai_studio_client, YandexAIStudioError
 from app.core.redis_client import get_redis_manager
@@ -421,11 +422,18 @@ class FeverRoutingGraph:
                 
                 # Извлечение красных флагов
                 red_flags = extract_red_flags_from_patient_data(updated_patient_data)
+
+                # Детекция двухволновой лихорадки (волны с интервалом в дни, нормотермия между ними)
+                timeline = updated_patient_data.get("temperature_timeline") or []
+                biphasic = detect_biphasic_fever(timeline)
+                if biphasic:
+                    logger.info("Biphasic fever pattern detected — flagged for specialist review")
                 updated_patient_data["red_flags"] = red_flags
-                
+
                 # Создаем новое состояние с помощью вспомогательных функций
                 new_state = update_patient_data(state, updated_patient_data)
                 new_state["current_step"] = "intake_completed"
+                new_state["biphasic_fever_detected"] = biphasic
                 
                 # Адаптивные вопросы: после ответа на вопрос сбрасываем пул — следующий вопрос
                 # сгенерируется заново с учётом новых вводных (не идём по заранее сгенерированному списку).
@@ -1086,6 +1094,10 @@ class FeverRoutingGraph:
             _prev_questions = [
                 m["content"] for m in _recent if m.get("role") == "assistant"
             ]
+            # Сырые тексты пользователя — включают явные отрицания ("сыпи нет", "кашля нет")
+            _user_statements = [
+                m["content"] for m in _recent if m.get("role") == "user"
+            ]
 
             context = {
                 "current_hypotheses": {
@@ -1115,6 +1127,8 @@ class FeverRoutingGraph:
                 # Явные списки для предотвращения повторов
                 "already_known_info": _already_known,
                 "previously_asked_questions": _prev_questions,
+                # Сырые высказывания пользователя — содержат явные отрицания ("сыпи нет" и т.п.)
+                "user_statements": _user_statements,
                 "adaptive_questions": True,
                 "dialogue_mode": True,
                 "message_count": len(state.get("messages", [])),
@@ -1128,8 +1142,10 @@ class FeverRoutingGraph:
                 agent_name="question",
                 prompt=(
                     f"Сформируй ровно один следующий уточняющий вопрос. "
-                    f"УЖЕ ИЗВЕСТНО (не спрашивать повторно): {_known_str}. "
-                    f"УЖЕ ЗАДАНО {len(_prev_questions)} вопросов — темы из already_known_info и previously_asked_questions НЕ повторять. "
+                    f"УЖЕ ИЗВЕСТНО из структурированных данных: {_known_str}. "
+                    f"ОБЯЗАТЕЛЬНО проверь user_statements — если пользователь уже упоминал симптом "
+                    f"или его отсутствие в любой формулировке — эту тему НЕ переспрашивать. "
+                    f"УЖЕ ЗАДАНО {len(_prev_questions)} вопросов — темы из previously_asked_questions НЕ повторять. "
                     f"Уверенность: {diagnostic_confidence:.1%}, сложность: {case_complexity}."
                 ),
                 context=context
@@ -2366,6 +2382,9 @@ class FeverRoutingGraph:
             updated["temperature_current"] = temp_data.get("current")
             updated["temperature_max"] = temp_data.get("max")
             updated["temperature_pattern"] = temp_data.get("pattern")
+            timeline = temp_data.get("timeline")
+            if isinstance(timeline, list) and timeline:
+                updated["temperature_timeline"] = timeline
         
         # Обновление длительности
         if "duration_days" in intake_result:

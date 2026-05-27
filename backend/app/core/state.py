@@ -42,6 +42,25 @@ class TemperaturePattern(str, Enum):
     WAVELIKE = "волнообразная"
 
 
+def detect_biphasic_fever(timeline: List[Dict]) -> bool:
+    """Детектирует двухволновой паттерн температуры: подъём → снижение ≥1°C → повторный подъём ≥1°C.
+    Передаётся специалистам как дополнительный контекст; клиническую значимость оценивает агент."""
+    if not timeline or len(timeline) < 3:
+        return False
+    values = [
+        t.get("value") for t in timeline
+        if isinstance(t.get("value"), (int, float))
+    ]
+    if len(values) < 3:
+        return False
+    for i in range(len(values) - 2):
+        drop = values[i] - values[i + 1]
+        rise = values[i + 2] - values[i + 1]
+        if drop >= 1.0 and rise >= 1.0:
+            return True
+    return False
+
+
 class PatientData(TypedDict):
     """Структурированные данные о пациенте"""
     age_years: Optional[int]
@@ -49,6 +68,7 @@ class PatientData(TypedDict):
     temperature_current: Optional[float]
     temperature_max: Optional[float]
     temperature_pattern: Optional[str]
+    temperature_timeline: List[Dict]  # [{"value": 39.5, "time": "вечер д1"}, ...]
     duration_days: Optional[int]
     symptoms: List[str]
     red_flags: List[str]
@@ -156,6 +176,9 @@ class GraphState(TypedDict):
     total_cost_units: int  # Учёт вызовов LLM (1 единица на вызов агента)
     max_cost_units: Optional[int]  # Для budgeted: лимит вызовов (None = без лимита)
     clinical_score: Optional[float]  # Опциональная клиническая оценка 1-5 после synthesis
+
+    # Двухволновая лихорадка
+    biphasic_fever_detected: bool  # True → автоматически поднимать зону триажа до Скорой
 
     # Флаги оптимизации выполнения
     is_simple_case: Optional[bool]       # True для routine-случаев с высокой уверенностью (пропускаем специалистов)
@@ -267,6 +290,7 @@ def create_initial_state(
             "temperature_current": None,
             "temperature_max": None,
             "temperature_pattern": None,
+            "temperature_timeline": [],
             "duration_days": None,
             "symptoms": [],
             "red_flags": [],
@@ -327,6 +351,7 @@ def create_initial_state(
         "total_cost_units": 0,
         "max_cost_units": _max_cost,
         "clinical_score": None,
+        "biphasic_fever_detected": False,
     }
 
 
