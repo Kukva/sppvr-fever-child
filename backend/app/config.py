@@ -43,7 +43,7 @@ class Settings:
         # Yandex AI Studio
         self.yandex_api_key = os.getenv("YANDEX_CLOUD_API_KEY", "")
         self.yandex_folder_id = os.getenv("YANDEX_CLOUD_FOLDER_ID", "")
-        self.yandex_model_uri = "gpt://YOUR_FOLDER_ID/yandexgpt/latest"
+        self.yandex_model_uri = f"gpt://{self.yandex_folder_id}/yandexgpt/latest"
         
         # Agent IDs (Yandex AI Studio prompt IDs для Responses API, см. backend/docs/YANDEX_AI_AGENTS.md)
         self.intake_agent_id = "YOUR_INTAKE_AGENT_ID"
