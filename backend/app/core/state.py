@@ -425,31 +425,41 @@ def add_message(state: GraphState, role: str, content: str, metadata: Optional[D
     return new_state
 
 
+def _to_num(val, default: float = 0.0) -> float:
+    """Безопасное приведение поля patient_data к числу: LLM может вернуть строку вместо int/float."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 def extract_red_flags_from_patient_data(patient_data: PatientData) -> List[str]:
     """Извлечение красных флагов из данных пациента"""
     red_flags = []
-    
+
     # Возрастные красные флаги
-    age_years = patient_data.get("age_years", 0) or 0
-    age_months = patient_data.get("age_months", 0) or 0
-    temp_current = patient_data.get("temperature_current", 0) or 0
-    
+    age_years = _to_num(patient_data.get("age_years"))
+    age_months = _to_num(patient_data.get("age_months"))
+    temp_current = _to_num(patient_data.get("temperature_current"))
+
     # Проверяем общий возраст в месяцах
     total_months = age_years * 12 + age_months
-    
+
     if total_months < 12 and temp_current > 38.0:
         red_flags.append("Возраст < 1 года с температурой > 38°C")
-    
+
     if total_months < 3 and temp_current > 38.5:
         red_flags.append("Возраст < 3 месяцев с температурой > 38.5°C")
-    
+
     # Температурные красные флаги
-    temp_max = patient_data.get("temperature_max", 0) or 0
+    temp_max = _to_num(patient_data.get("temperature_max"))
     if temp_max > 40.0:
         red_flags.append("Температура > 40°C")
-    
+
     # Длительность лихорадки
-    duration = patient_data.get("duration_days", 0) or 0
+    duration = _to_num(patient_data.get("duration_days"))
     if duration > 14:
         red_flags.append("Лихорадка > 14 дней")
     
@@ -545,15 +555,15 @@ def calculate_case_complexity(patient_data: Dict[str, Any], red_flags: List[str]
     medium_complexity_count = sum(1 for flag in red_flags if any(mc_flag in flag for mc_flag in medium_complexity_flags))
     
     # Дополнительные факторы сложности
-    age_years = patient_data.get("age_years", 0) or 0
-    age_months = patient_data.get("age_months", 0) or 0
+    age_years = _to_num(patient_data.get("age_years"))
+    age_months = _to_num(patient_data.get("age_months"))
     total_months = age_years * 12 + age_months
-    
+
     # Очень маленький возраст или длительная лихорадка увеличивают сложность
     if total_months < 3:
         high_complexity_count += 1
-    
-    duration_days = patient_data.get("duration_days", 0) or 0
+
+    duration_days = _to_num(patient_data.get("duration_days"))
     if duration_days > 14:
         high_complexity_count += 1
     elif duration_days > 7:

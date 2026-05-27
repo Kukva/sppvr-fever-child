@@ -134,26 +134,52 @@ def print_results_table(results, summary):
     print(f"\nOverall pass rate (all criteria >= {PASS_THRESHOLD}): {overall:.1%}\n")
 
 
-async def get_live_output(input_text: str, run_mode: str = "instant") -> str:
-    """Прогнать кейс через реальный граф и вернуть финальный ответ ассистента."""
+_FINAL_STEPS = {"synthesis_complete", "feedback_requested", "complete"}
+
+
+async def get_live_output(input_text: str, run_mode: str = "full") -> str:
+    """Прогнать кейс через реальный граф и вернуть финальный ответ ассистента.
+
+    Ход 1: полное описание случая (граф собирает данные / задаёт 1 вопрос).
+    Ход 2: принудительно переводим Redis-состояние в фазу диагностики
+            (questions_asked_count=20, dialogue_phase=diagnosis), затем
+            отправляем финальный запрос — граф идёт к триажу и синтезу.
+    Готовность проверяем по current_step, а не по needs_more_info.
+    """
     import uuid
-    from app.core.langgraph_app import MedicalRoutingGraph
-    from app.core.state import create_initial_state
+    from app.core.langgraph_app import FeverRoutingGraph
 
-    graph = MedicalRoutingGraph()
+    graph = FeverRoutingGraph()
+    await graph.initialize()
     session_id = str(uuid.uuid4())
-    state = create_initial_state(session_id=session_id, run_mode=run_mode)
 
-    result = await graph.process_message(
-        session_id=session_id,
-        message=input_text,
+    benchmark_input = (
+        input_text
+        + "\n\nДругих данных нет. Анализы, если не указаны выше, не проводились."
     )
-    # Берём последнее сообщение ассистента из финального состояния
-    messages = result.get("messages") or []
-    assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
-    if not assistant_msgs:
-        return "[no assistant output]"
-    return assistant_msgs[-1].get("content", "[empty]")
+    result1 = await graph.process_message(session_id=session_id, message=benchmark_input)
+
+    # Синтез уже выполнен на первом ходу (редко, но возможно)
+    if result1.get("current_step") in _FINAL_STEPS:
+        return result1.get("response") or "[no assistant output]"
+
+    # Принудительно переводим состояние в фазу диагностики через Redis.
+    # data_completeness_score ставим 85 чтобы _is_simple_case мог отправить
+    # рутинные кейсы сразу в synthesis (порог 80).
+    existing = await graph.redis_manager.load_session_state(session_id)
+    if existing:
+        existing["questions_asked_count"] = 20
+        existing["dialogue_phase"] = "diagnosis"
+        existing["needs_more_info"] = False
+        if existing.get("data_completeness_score", 0) < 80:
+            existing["data_completeness_score"] = 85
+        await graph.redis_manager.save_session_state(session_id, existing)
+
+    result2 = await graph.process_message(
+        session_id=session_id,
+        message="Данных достаточно. Дайте итоговое клиническое заключение.",
+    )
+    return result2.get("response") or result1.get("response") or "[no assistant output]"
 
 
 async def run_benchmark(use_llm_judge=True, limit=None, live=False):

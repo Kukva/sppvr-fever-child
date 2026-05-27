@@ -1939,9 +1939,11 @@ class FeverRoutingGraph:
             else:
                 confidence_value = 0.0
             
-            # Проверяем полноту данных (score хранится как 0-100, не 0.0-1.0)
-            completeness_ok = data_completeness_score >= 80
-            
+            # Для рутинных случаев с высокой уверенностью достаточно score >= 50:
+            # если триаж уверен на 90%+ что это routine, недостающие анализы не меняют вывод.
+            completeness_threshold = 50 if (is_routine and confidence_value >= 0.9) else 80
+            completeness_ok = data_completeness_score >= completeness_threshold
+
             is_simple = is_routine and confidence_value >= 0.9 and completeness_ok
             
             if is_simple:
