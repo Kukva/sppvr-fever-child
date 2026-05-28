@@ -9,6 +9,15 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 from dataclasses import dataclass
 
+from app.config import settings
+
+try:
+    from app.core.ai_studio import get_ai_studio_client
+    _AI_STUDIO_AVAILABLE = True
+except ImportError:
+    get_ai_studio_client = None  # type: ignore[assignment]
+    _AI_STUDIO_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Критерии оценки (метрики)
@@ -154,8 +163,9 @@ async def evaluate_with_llm_judge(
     Вызывает LLM-судью для оценки пары (input, output).
     Использует тот же Yandex AI Studio клиент с отдельным judge-промптом.
     """
+    if not _AI_STUDIO_AVAILABLE or get_ai_studio_client is None:
+        return JudgeResult(score=0.0, reason="Judge unavailable: ai_studio not importable", criterion=criterion)
     try:
-        from app.core.ai_studio import get_ai_studio_client
         client = await get_ai_studio_client()
     except Exception as e:
         logger.warning(f"LLM Judge: could not get AI client: {e}")
@@ -166,10 +176,6 @@ async def evaluate_with_llm_judge(
         "Ты — объективный оценщик качества ответов ИИ. Отвечай только оценкой и обоснованием по инструкции."
     )
     try:
-        # Вызов без кэша (оценки не кэшируем по умолчанию)
-        agent_config = client.openai_client  # используем тот же модель-конфиг через call
-        # Используем первый доступный агент для модели (например intake)
-        from app.config import settings
         agent_config_dict = settings.get_agent_config("intake")
         model_uri = agent_config_dict.get("model_uri", "gpt-4")
         response = client.openai_client.chat.completions.create(

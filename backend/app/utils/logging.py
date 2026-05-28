@@ -3,6 +3,7 @@
 import logging
 import json
 import sys
+import traceback
 from datetime import datetime
 from typing import Any, Dict, Optional
 from pathlib import Path
@@ -65,7 +66,6 @@ class DatabaseLogHandler(logging.Handler):
     def format_exception(self, exc_info):
         """Форматирование исключения"""
         if exc_info:
-            import traceback
             return ''.join(traceback.format_exception(*exc_info))
         return None
 

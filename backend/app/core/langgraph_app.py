@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import re
+import traceback
 from typing import Dict, Any, List, Optional, Literal, Callable, Awaitable
 from collections.abc import Mapping
 from datetime import datetime
@@ -24,7 +26,21 @@ from app.core.redis_client import get_redis_manager
 from app.core.feedback_parser import parse_feedback_response
 from app.core.retry import RetryPolicies, RetryPolicy
 from app.core.metrics import timing_decorator, get_performance_metrics
+from app.core.consensus import calculate_weighted_consensus
 from app.config import settings
+
+try:
+    from app.db.session import get_db_session
+    from app.db.repositories import FeedbackRepository
+    _DB_AVAILABLE = True
+except ImportError:
+    _DB_AVAILABLE = False
+
+try:
+    from app.core.llm_judge import evaluate_with_llm_judge, CRITERION_CLINICAL_APPROPRIATENESS
+    _LLM_JUDGE_AVAILABLE = True
+except ImportError:
+    _LLM_JUDGE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +216,7 @@ class FeverRoutingGraph:
         workflow.add_node("immune", self._immune_node)
         workflow.add_node("oncology", self._oncology_node)
         workflow.add_node("rare_disease", self._rare_disease_node)
+        workflow.add_node("orchestrator", self._orchestrator_node)
         workflow.add_node("synthesis", self._synthesis_node)
         workflow.add_node("feedback_request", self._feedback_request_node)
         
@@ -248,7 +265,7 @@ class FeverRoutingGraph:
         logger.info("Added conditional edges from hypothesis_generator")
         
         
-        # Маршрутизация к специалистам
+        # Маршрутизация к специалистам (или напрямую к оркестратору для простых случаев)
         workflow.add_conditional_edges(
             "route_to_specialists",
             self._route_to_specialists,
@@ -257,17 +274,21 @@ class FeverRoutingGraph:
                 "immune": "immune",
                 "oncology": "oncology",
                 "rare_disease": "rare_disease",
-                "synthesis": "synthesis"
+                "orchestrator": "orchestrator"
             }
         )
         logger.info("Added conditional edges from route_to_specialists")
-        
-        # Все специалисты ведут к синтезу
-        workflow.add_edge("infection", "synthesis")
-        workflow.add_edge("immune", "synthesis")
-        workflow.add_edge("oncology", "synthesis")
-        workflow.add_edge("rare_disease", "synthesis")
-        logger.info("Added edges from specialists to synthesis")
+
+        # Все специалисты ведут к оркестратору
+        workflow.add_edge("infection", "orchestrator")
+        workflow.add_edge("immune", "orchestrator")
+        workflow.add_edge("oncology", "orchestrator")
+        workflow.add_edge("rare_disease", "orchestrator")
+        logger.info("Added edges from specialists to orchestrator")
+
+        # Оркестратор ведёт к синтезу
+        workflow.add_edge("orchestrator", "synthesis")
+        logger.info("Added edge: orchestrator -> synthesis")
         
         # После вопросов - проверяем полноту данных снова или завершаем
         workflow.add_conditional_edges(
@@ -340,10 +361,6 @@ class FeverRoutingGraph:
                 
                 # Сохраняем обратную связь в БД асинхронно
                 try:
-                    from app.db.session import get_db_session
-                    from app.db.repositories import FeedbackRepository
-                    import asyncio
-                    
                     async def save_feedback():
                         try:
                             async with get_db_session() as db:
@@ -1553,6 +1570,56 @@ class FeverRoutingGraph:
             new_state["error_message"] = str(e)
             return new_state
     
+    async def _orchestrator_node(self, state: GraphState) -> GraphState:
+        """Мета-узел управления без LLM-вызовов.
+
+        Располагается между специалистами и синтезом.
+        Принимает три управляющих решения:
+        1. Консенсус специалистов (взвешенное голосование)
+        2. Список специалистов с низкой уверенностью (< 0.7) — кандидаты на 2-ю фазу (п. 3.2)
+        3. Нужен ли reflexion-pass после синтеза
+        """
+        logger.info("=== ORCHESTRATOR NODE STARTED ===")
+        new_state = state.copy()
+
+        # 1. Консенсус специалистов
+        consensus = calculate_weighted_consensus(state)
+        new_state["specialist_consensus"] = consensus
+        logger.info(
+            f"Orchestrator consensus: urgency={consensus['consensus_urgency']}, "
+            f"conflict={consensus['conflict']}, participating={consensus['participating']}"
+        )
+
+        # 2. Специалисты с низкой уверенностью (кандидаты на вторую фазу)
+        low_confidence = [
+            sp for sp in ["infection", "immune", "oncology", "rare_disease"]
+            if _coerce_unit_interval(
+                (state.get(f"{sp}_output") or {}).get("confidence"), 1.0
+            ) < 0.7
+            and state.get(f"{sp}_output") is not None
+        ]
+        new_state["low_confidence_specialists"] = low_confidence
+        if low_confidence:
+            logger.info(f"Orchestrator: low-confidence specialists: {low_confidence}")
+
+        # 3. Решение о reflexion-pass
+        diag_conf = _coerce_unit_interval(state.get("diagnostic_confidence"), 0.9)
+        reflexion_needed = (
+            settings.reflexion_enabled
+            and (
+                diag_conf < settings.reflexion_confidence_threshold
+                or consensus.get("conflict", False)
+            )
+        )
+        new_state["orchestrator_reflexion_needed"] = reflexion_needed
+        logger.info(
+            f"Orchestrator: diag_conf={diag_conf:.2f}, "
+            f"reflexion_needed={reflexion_needed}"
+        )
+
+        new_state["current_step"] = "orchestrating"
+        return new_state
+
     async def _synthesis_reflexion_pass(
         self,
         first_parsed_data: Dict[str, Any],
@@ -1605,16 +1672,12 @@ class FeverRoutingGraph:
             # Проверка на простой случай
             is_simple_case = state.get("is_simple_case", False)
 
-            # Консенсус специалистов (до сбора контекста)
-            from app.core.consensus import calculate_weighted_consensus
-            consensus = calculate_weighted_consensus(state)
-            new_state_pre = state.copy()
-            new_state_pre["specialist_consensus"] = consensus
-            state = new_state_pre
-            if consensus["participating"]:
+            # Консенсус уже рассчитан оркестратором — берём из state
+            consensus = state.get("specialist_consensus") or {}
+            if consensus.get("participating"):
                 logger.info(
-                    f"Specialist consensus: {consensus['consensus_urgency']}, "
-                    f"conflict={consensus['conflict']}, votes={consensus['votes']}"
+                    f"Synthesis using orchestrator consensus: {consensus.get('consensus_urgency')}, "
+                    f"conflict={consensus.get('conflict')}"
                 )
 
             # Сбор всех результатов агентов
@@ -1662,33 +1725,17 @@ class FeverRoutingGraph:
             if result.get("success") and result.get("parsed_data"):
                 parsed_data = result["parsed_data"]
 
-                # Reflexion-loop: второй проход самопроверки (если включён и нужен)
+                # Reflexion-loop: решение принято оркестратором
                 new_state["synthesis_reflexion_applied"] = False
-                if settings.reflexion_enabled:
-                    # Приоритет: diagnostic_confidence из гипотезатора (float),
-                    # затем confidence_level из synthesis ("high"→0.9, "medium"→0.7, "low"→0.5)
-                    _level_map = {"high": 0.9, "medium": 0.7, "low": 0.5}
-                    _synth_level = str(parsed_data.get("confidence_level", "high")).lower()
-                    _synth_conf = _level_map.get(_synth_level, 0.9)
-                    diagnostic_confidence = _coerce_unit_interval(
-                        state.get("diagnostic_confidence"), _synth_conf
+                if state.get("orchestrator_reflexion_needed", False):
+                    logger.info("Triggering reflexion pass (orchestrator decision)")
+                    reflexion_data = await self._synthesis_reflexion_pass(
+                        parsed_data, context, consensus
                     )
-                    consensus_conflict = consensus.get("conflict", False)
-                    if (
-                        diagnostic_confidence < settings.reflexion_confidence_threshold
-                        or consensus_conflict
-                    ):
-                        logger.info(
-                            f"Triggering reflexion pass: confidence={diagnostic_confidence:.2f}, "
-                            f"conflict={consensus_conflict}"
-                        )
-                        reflexion_data = await self._synthesis_reflexion_pass(
-                            parsed_data, context, consensus
-                        )
-                        if reflexion_data:
-                            parsed_data = reflexion_data
-                            new_state["synthesis_reflexion_applied"] = True
-                            logger.info("Synthesis reflexion applied — using corrected output")
+                    if reflexion_data:
+                        parsed_data = reflexion_data
+                        new_state["synthesis_reflexion_applied"] = True
+                        logger.info("Synthesis reflexion applied — using corrected output")
 
                 # Извлечение возможных диагнозов
                 possible_diagnoses = parsed_data.get("possible_diagnoses", [])
@@ -1743,7 +1790,6 @@ class FeverRoutingGraph:
                 
                 # Проверяем в дополнительной информации (текстовый поиск)
                 if additional_info:
-                    import re
                     # Ищем упоминания о повторяющихся эпизодах
                     patterns = [
                         r'(\d+)\s*(?:раз|раза|эпизод)',
@@ -1822,9 +1868,8 @@ class FeverRoutingGraph:
                 increment_cost_units(new_state)
                 
                 # Опциональная клиническая оценка (LLM-as-a-Judge, MAI-DxO-подобный Judge)
-                if getattr(settings, "enable_clinical_eval", False):
+                if getattr(settings, "enable_clinical_eval", False) and _LLM_JUDGE_AVAILABLE:
                     try:
-                        from app.core.llm_judge import evaluate_with_llm_judge, CRITERION_CLINICAL_APPROPRIATENESS
                         input_text = str(state.get("patient_data", {}))[:1500]
                         output_text = new_state.get("recommendations_text") or str(parsed_data)[:2000]
                         judge_result = await evaluate_with_llm_judge(
@@ -2208,32 +2253,27 @@ class FeverRoutingGraph:
         return "end"
     
     def _route_to_specialists(self, state: GraphState) -> str:
-        """Маршрутизация к специализированным агентам
-        
-        После реализации параллельного выполнения, всегда возвращает "synthesis",
-        так как все специалисты уже выполнены в _route_to_specialists_node
-        
-        Для простых случаев пропускает выполнение специалистов и идет напрямую к synthesis
+        """Маршрутизация к специализированным агентам.
+
+        После параллельного выполнения всегда идёт в orchestrator.
+        Fallback-путь (последовательный) тоже ведёт через orchestrator.
         """
-        # Проверяем, является ли это простым случаем
+        # Простой случай или параллельные специалисты уже выполнены → оркестратор
         if state.get("is_simple_case", False):
-            logger.info("_route_to_specialists: simple case detected, skipping specialists, routing to synthesis")
-            return "synthesis"
-        
-        # Проверяем, были ли уже выполнены специалисты параллельно
+            logger.info("_route_to_specialists: simple case, routing to orchestrator")
+            return "orchestrator"
+
         if state.get("specialists_executed", False):
-            logger.info("_route_to_specialists: specialists already executed in parallel, routing to synthesis")
-            return "synthesis"
-        
-        # Для обратной совместимости (если параллельное выполнение не сработало)
+            logger.info("_route_to_specialists: specialists executed in parallel, routing to orchestrator")
+            return "orchestrator"
+
+        # Fallback: последовательное выполнение (устаревший путь)
         activated = state.get("activated_specialists", [])
-        logger.info("=== _route_to_specialists CALLED ===")
-        logger.info(f"_route_to_specialists: activated_specialists = {activated}")
-        
-        # Если нет активированных специалистов, идем к synthesis
+        logger.info(f"_route_to_specialists (fallback): activated={activated}")
+
         if not activated:
-            logger.info("_route_to_specialists: no activated specialists, routing to synthesis")
-            return "synthesis"
+            logger.info("_route_to_specialists: no activated specialists, routing to orchestrator")
+            return "orchestrator"
         
         # Приоритизация маршрутизации (fallback для последовательного выполнения)
         if "ONCOLOGY" in activated:
@@ -2371,8 +2411,6 @@ class FeverRoutingGraph:
         Returns:
             Базовые данные triage на основе данных пациента
         """
-        from app.core.state import UrgencyLevel
-        
         patient_data = state.get("patient_data", {})
         red_flags = patient_data.get("red_flags", [])
         temperature = patient_data.get("temperature_current", 0)
@@ -2414,8 +2452,6 @@ class FeverRoutingGraph:
         Returns:
             Базовые данные пациента, извлеченные простым парсингом
         """
-        import re
-        
         fallback_data = current_data.copy() if current_data else {}
         
         # Простой парсинг возраста
@@ -2562,7 +2598,6 @@ class FeverRoutingGraph:
             try:
                 logger.info("=== GRAPH EXECUTION STARTING ===")
                 logger.info(f"State before graph execution: {current_state}")
-                import asyncio
 
                 if progress_callback:
                     logger.info("Using astream with progress_callback (streaming agent progress)")
@@ -2675,7 +2710,6 @@ class FeverRoutingGraph:
                 logger.error("=== GRAPH EXECUTION FAILED ===")
                 logger.error(f"Graph execution error: {str(graph_error)}")
                 logger.error(f"Graph error type: {type(graph_error)}")
-                import traceback
                 logger.error(f"Graph traceback: {traceback.format_exc()}")
                 
                 # Возвращаем базовый ответ при ошибке графа
@@ -2789,7 +2823,6 @@ class FeverRoutingGraph:
             
         except Exception as e:
             logger.error("=== PROCESS_MESSAGE FAILED ===")
-            import traceback
             logger.error(f"Error processing message: {str(e)}")
             logger.error(f"Error type: {type(e)}")
             logger.error(f"Session ID: {session_id}")

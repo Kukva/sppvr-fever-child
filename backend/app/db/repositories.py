@@ -4,7 +4,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_, or_
+from sqlalchemy import select, update, delete, and_, or_, func
 from sqlalchemy.orm import selectinload
 
 from app.db.models import (
@@ -130,8 +130,7 @@ class SessionRepository(BaseRepository):
     
     async def get_sessions_count(self) -> int:
         """Получение общего количества сессий"""
-        
-        from sqlalchemy import func
+
         stmt = select(func.count(Session.id))
         result = await self.db.execute(stmt)
         return result.scalar() or 0

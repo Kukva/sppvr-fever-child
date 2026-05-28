@@ -1,7 +1,10 @@
 """Конфигурация приложения"""
 
+import json
+import logging
 import os
 from typing import Optional
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения из .env файла
@@ -29,7 +32,6 @@ class Settings:
         redis_url = os.getenv("REDIS_URL", "")
         if redis_url:
             # Парсим URL вида redis://host:port/db
-            from urllib.parse import urlparse
             parsed = urlparse(redis_url)
             self.redis_host = parsed.hostname or "localhost"
             self.redis_port = parsed.port or 6379
@@ -65,7 +67,6 @@ class Settings:
         if cors_origins_env:
             # Поддержка формата "url1,url2" или ["url1","url2"]
             if cors_origins_env.startswith("["):
-                import json
                 try:
                     self.cors_origins = json.loads(cors_origins_env)
                 except json.JSONDecodeError:
@@ -124,8 +125,9 @@ class Settings:
 
         # Reflexion loop: повторный вызов synthesis для самопроверки
         # Активируется при low confidence или конфликте консенсуса
-        # Для сравнения с/без: REFLEXION_ENABLED=false python run_eval_benchmark.py --live
-        self.reflexion_enabled = os.getenv("REFLEXION_ENABLED", "true").lower() == "true"
+        # По умолчанию выключен: улучшает средние оценки, но нарушает формат вывода (fmt_ok -0.08)
+        # Включить: REFLEXION_ENABLED=true (после доработки промпта второго прохода)
+        self.reflexion_enabled = os.getenv("REFLEXION_ENABLED", "false").lower() == "true"
         self.reflexion_confidence_threshold = float(os.getenv("REFLEXION_CONFIDENCE_THRESHOLD", "0.85"))
 
         # Environment variables
@@ -158,7 +160,6 @@ class Settings:
     
     def _validate_required_settings(self):
         """Валидация обязательных настроек при старте"""
-        import logging
         logger = logging.getLogger(__name__)
         
         errors = []
@@ -264,7 +265,6 @@ settings = Settings()
 
 # Создание необходимых директорий (при ошибке прав — только предупреждение, чтобы контейнер стартовал)
 def _ensure_dirs():
-    import logging
     _log = logging.getLogger(__name__)
     for d in (settings.pdf_export_dir, "logs"):
         try:

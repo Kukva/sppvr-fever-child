@@ -1,5 +1,6 @@
 """Клиент для взаимодействия с Yandex AI Studio"""
 
+import hashlib
 import httpx
 import json
 import re
@@ -13,6 +14,14 @@ import openai
 
 from app.config import settings, REGISTERED_AGENT_NAMES
 from app.core.state import AgentOutput
+from app.core.skills_loader import get_instructions_for_agent
+
+try:
+    from app.core.redis_client import get_redis_manager as _get_redis_manager
+    _REDIS_AVAILABLE = True
+except ImportError:
+    _get_redis_manager = None  # type: ignore[assignment]
+    _REDIS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +108,10 @@ class YandexAIStudioClient:
     async def _get_redis_client(self):
         """Получение Redis клиента для кэширования"""
         if self._redis_client is None:
+            if not _REDIS_AVAILABLE or _get_redis_manager is None:
+                return None
             try:
-                from app.core.redis_client import get_redis_manager
-                redis_manager = await get_redis_manager()
+                redis_manager = await _get_redis_manager()
                 self._redis_client = redis_manager.redis_client
             except Exception as e:
                 logger.warning(f"Redis client not available for caching: {str(e)}")
@@ -118,9 +128,6 @@ class YandexAIStudioClient:
         Returns:
             Ключ кэша в формате fever_routing:ai_cache:{agent_name}:{hash}
         """
-        import hashlib
-        import json
-        
         # Включаем в ключ кэша данные пациента из контекста
         context_str = ""
         if context:
@@ -237,8 +244,6 @@ class YandexAIStudioClient:
     
     def _load_agent_prompts(self) -> Dict[str, str]:
         """Системные промпты только из Agent Skills (backend/skills/<agent>/SKILL.md)."""
-        from app.core.skills_loader import get_instructions_for_agent
-
         minimal_fallback = (
             "Ты — ассистент клинической поддержки. Следуй запросу пользователя; "
             "если нужен JSON — верни только валидный JSON. "

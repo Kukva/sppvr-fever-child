@@ -6,6 +6,13 @@ from typing import Dict, Any, Optional
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
 import logging
 
+try:
+    import psutil as _psutil
+    _PSUTIL_AVAILABLE = True
+except ImportError:
+    _psutil = None  # type: ignore[assignment]
+    _PSUTIL_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Создание реестра метрик
@@ -388,19 +395,14 @@ def record_questions_count(questions_count: int):
 
 def update_system_metrics():
     """Обновление системных метрик"""
-    try:
-        import psutil
-        
-        # Использование памяти
-        memory = psutil.virtual_memory()
-        system_memory_usage.set(memory.used)
-        
-        # Использование CPU
-        cpu_percent = psutil.cpu_percent()
-        system_cpu_usage.set(cpu_percent)
-        
-    except ImportError:
+    if not _PSUTIL_AVAILABLE:
         logger.warning("psutil not available, system metrics disabled")
+        return
+    try:
+        memory = _psutil.virtual_memory()
+        system_memory_usage.set(memory.used)
+        cpu_percent = _psutil.cpu_percent()
+        system_cpu_usage.set(cpu_percent)
     except Exception as e:
         logger.error(f"Error updating system metrics: {str(e)}")
 

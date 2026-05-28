@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import traceback
 import uuid
 import time
 from contextlib import asynccontextmanager
@@ -31,7 +32,10 @@ import uvicorn
 
 from app.config import settings
 from app.core.langgraph_app import get_fever_routing_graph
-from app.core.ai_studio import close_ai_studio_client
+from app.core.ai_studio import close_ai_studio_client, get_ai_studio_client
+from app.core.state import create_initial_state
+from app.core.metrics import get_performance_metrics
+from langchain_core.messages import HumanMessage
 from app.core.redis_client import get_rate_limiter
 from app.db.session import get_db, get_db_session, init_db
 from app.db.repositories import SessionRepository, MessageRepository, RecommendationRepository, FeedbackRepository, FeedbackRepository
@@ -199,7 +203,6 @@ async def lifespan(app: FastAPI):
             logger.info("Rate limiter initialized")
             
             # Запускаем периодическую очистку старых записей
-            import asyncio
             asyncio.create_task(periodic_rate_limit_cleanup())
             asyncio.create_task(periodic_websocket_cleanup())
         except Exception as e:
@@ -237,7 +240,6 @@ async def lifespan(app: FastAPI):
 
 async def periodic_rate_limit_cleanup():
     """Периодическая очистка старых записей rate limiting"""
-    import asyncio
     while True:
         try:
             await asyncio.sleep(3600)  # Каждый час
@@ -249,7 +251,6 @@ async def periodic_rate_limit_cleanup():
 
 async def periodic_websocket_cleanup():
     """Периодическая очистка неактивных WebSocket соединений"""
-    import asyncio
     while True:
         try:
             await asyncio.sleep(300)  # Каждые 5 минут
@@ -1257,7 +1258,6 @@ async def health_check():
         
         # Проверка AI Studio connectivity
         try:
-            from app.core.ai_studio import get_ai_studio_client
             ai_client = await get_ai_studio_client()
             if ai_client and ai_client.openai_client:
                 # Простая проверка - клиент инициализирован
@@ -1315,9 +1315,6 @@ async def health_check():
 async def debug_state(message_data: MessageInput):
     """Тестовый endpoint для отладки создания состояния"""
     try:
-        from app.core.state import create_initial_state
-        from langchain_core.messages import HumanMessage
-        
         logger.info(f"Debug: Creating state for session {message_data.session_id}")
         
         # Создание начального состояния
@@ -1341,7 +1338,6 @@ async def debug_state(message_data: MessageInput):
         }
         
     except Exception as e:
-        import traceback
         logger.error(f"Debug error: {str(e)}")
         logger.error(f"Debug traceback: {traceback.format_exc()}")
         return {
@@ -1567,7 +1563,6 @@ async def get_feedback_stats(days: int = 30):
 async def get_cache_stats():
     """Получение статистики кэширования агентов"""
     try:
-        from app.core.ai_studio import get_ai_studio_client
         client = await get_ai_studio_client()
         stats = await client.get_cache_stats()
         return stats
@@ -1586,7 +1581,6 @@ async def get_performance_metrics_endpoint(node: Optional[str] = None, hours: in
         hours: Количество часов для анализа (по умолчанию 24)
     """
     try:
-        from app.core.metrics import get_performance_metrics
         metrics = await get_performance_metrics()
         
         if node:
@@ -1611,7 +1605,6 @@ async def get_performance_metrics_endpoint(node: Optional[str] = None, hours: in
 async def get_session_performance_metrics(session_id: str):
     """Получение метрик производительности для конкретной сессии"""
     try:
-        from app.core.metrics import get_performance_metrics
         metrics = await get_performance_metrics()
         stats = await metrics.get_chain_statistics(session_id)
         return {"session_id": session_id, "statistics": stats}

@@ -188,6 +188,10 @@ class GraphState(TypedDict):
     # Консенсус специалистов
     specialist_consensus: Optional[Dict[str, Any]]  # результат calculate_weighted_consensus()
 
+    # Orchestrator decisions (заполняется _orchestrator_node)
+    low_confidence_specialists: Optional[List[str]]   # специалисты с confidence < 0.7 (кандидаты на 2-ю фазу)
+    orchestrator_reflexion_needed: Optional[bool]     # решение оркестратора о необходимости reflexion-pass
+
     # Reflexion loop
     synthesis_reflexion_applied: Optional[bool]  # True если был выполнен второй проход синтеза
 
@@ -360,6 +364,8 @@ def create_initial_state(
         "clinical_score": None,
         "biphasic_fever_detected": False,
         "specialist_consensus": None,
+        "low_confidence_specialists": [],
+        "orchestrator_reflexion_needed": False,
         "synthesis_reflexion_applied": None,
     }
 
