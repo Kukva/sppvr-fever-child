@@ -1553,6 +1553,45 @@ class FeverRoutingGraph:
             new_state["error_message"] = str(e)
             return new_state
     
+    async def _synthesis_reflexion_pass(
+        self,
+        first_parsed_data: Dict[str, Any],
+        context: Dict[str, Any],
+        consensus: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Второй проход синтеза: самопроверка первичного вывода.
+
+        Вызывается когда confidence низкая или специалисты конфликтуют.
+        Возвращает скорректированный parsed_data или None при ошибке.
+        """
+        try:
+            client = await get_ai_studio_client()
+            reflexion_context = {
+                **context,
+                "first_synthesis_output": first_parsed_data,
+                "reflexion_instructions": (
+                    "Это второй проход самопроверки. Проверь свой первичный вывод:\n"
+                    "1. Соответствует ли уровень срочности тяжести клинической картины?\n"
+                    "2. Не упущены ли критические красные флаги (возраст < 3 мес, петехии, нарушение сознания)?\n"
+                    "3. Если специалисты разошлись во мнениях — учёл ли ты более консервативную позицию?\n"
+                    "4. Соответствует ли маршрутизация реальным возможностям педиатрической помощи?\n"
+                    "Верни исправленный JSON в том же формате. Если первичный вывод верен — верни его без изменений."
+                ),
+                "consensus_conflict": consensus.get("conflict", False),
+                "consensus_urgency": consensus.get("consensus_urgency"),
+            }
+            result = await client.call_agent(
+                agent_name="synthesis",
+                prompt="Проведи самопроверку первичного вывода и при необходимости скорректируй",
+                context=reflexion_context,
+            )
+            if result.get("success") and result.get("parsed_data"):
+                logger.info("Reflexion pass completed successfully")
+                return result["parsed_data"]
+        except Exception as e:
+            logger.warning(f"Reflexion pass failed: {e}")
+        return None
+
     @timing_decorator("synthesis")
     async def _synthesis_node(self, state: GraphState) -> GraphState:
         """Узел SYNTHESIS AGENT - формирование финальных рекомендаций"""
@@ -1622,7 +1661,35 @@ class FeverRoutingGraph:
             
             if result.get("success") and result.get("parsed_data"):
                 parsed_data = result["parsed_data"]
-                
+
+                # Reflexion-loop: второй проход самопроверки (если включён и нужен)
+                new_state["synthesis_reflexion_applied"] = False
+                if settings.reflexion_enabled:
+                    # Приоритет: diagnostic_confidence из гипотезатора (float),
+                    # затем confidence_level из synthesis ("high"→0.9, "medium"→0.7, "low"→0.5)
+                    _level_map = {"high": 0.9, "medium": 0.7, "low": 0.5}
+                    _synth_level = str(parsed_data.get("confidence_level", "high")).lower()
+                    _synth_conf = _level_map.get(_synth_level, 0.9)
+                    diagnostic_confidence = _coerce_unit_interval(
+                        state.get("diagnostic_confidence"), _synth_conf
+                    )
+                    consensus_conflict = consensus.get("conflict", False)
+                    if (
+                        diagnostic_confidence < settings.reflexion_confidence_threshold
+                        or consensus_conflict
+                    ):
+                        logger.info(
+                            f"Triggering reflexion pass: confidence={diagnostic_confidence:.2f}, "
+                            f"conflict={consensus_conflict}"
+                        )
+                        reflexion_data = await self._synthesis_reflexion_pass(
+                            parsed_data, context, consensus
+                        )
+                        if reflexion_data:
+                            parsed_data = reflexion_data
+                            new_state["synthesis_reflexion_applied"] = True
+                            logger.info("Synthesis reflexion applied — using corrected output")
+
                 # Извлечение возможных диагнозов
                 possible_diagnoses = parsed_data.get("possible_diagnoses", [])
                 if possible_diagnoses:

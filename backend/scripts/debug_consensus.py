@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Прогон одного кейса с выводом шагов и консенсуса специалистов."""
+"""Прогон одного кейса с выводом шагов и консенсуса специалистов.
+
+Использование:
+    python scripts/debug_consensus.py [case_id]
+    python scripts/debug_consensus.py case_008
+"""
 
 import asyncio, json, sys, uuid
 from pathlib import Path
@@ -10,7 +15,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 import os
 os.chdir(BACKEND_ROOT)
 
-CASE_ID = "case_017"  # 3 месяца, постпрививочная реакция АКДС — ожидается routine, специалист не нужен
+CASE_ID = sys.argv[1] if len(sys.argv) > 1 else "case_017"
 
 CASES_FILE = BACKEND_ROOT / "tests" / "fixtures" / "eval_cases.json"
 with open(CASES_FILE, encoding="utf-8") as f:
@@ -122,8 +127,10 @@ async def main():
 
     synthesis = final_state.get("synthesis_output") or {}
     synthesis_out = synthesis.get("output", {}) or {}
+    reflexion_applied = final_state.get("synthesis_reflexion_applied")
     print(f"\n{'─'*70}")
     print("СИНТЕЗ (финальный ответ):")
+    print(f"  reflexion_applied: {reflexion_applied}")
     response = result2.get("response") if "result2" in dir() else result1.get("response")
     if response:
         print(response[:1200])

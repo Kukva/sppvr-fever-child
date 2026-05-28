@@ -188,6 +188,9 @@ class GraphState(TypedDict):
     # Консенсус специалистов
     specialist_consensus: Optional[Dict[str, Any]]  # результат calculate_weighted_consensus()
 
+    # Reflexion loop
+    synthesis_reflexion_applied: Optional[bool]  # True если был выполнен второй проход синтеза
+
 
 class TriageOutput(TypedDict):
     """Результат работы TRIAGE AGENT"""
@@ -357,6 +360,7 @@ def create_initial_state(
         "clinical_score": None,
         "biphasic_fever_detected": False,
         "specialist_consensus": None,
+        "synthesis_reflexion_applied": None,
     }
 
 

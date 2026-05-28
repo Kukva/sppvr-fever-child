@@ -122,6 +122,12 @@ class Settings:
         # LangGraph: лимит шагов (см. GraphRecursionError при зацикливании маршрутизации)
         self.graph_recursion_limit = int(os.getenv("GRAPH_RECURSION_LIMIT", "50"))
 
+        # Reflexion loop: повторный вызов synthesis для самопроверки
+        # Активируется при low confidence или конфликте консенсуса
+        # Для сравнения с/без: REFLEXION_ENABLED=false python run_eval_benchmark.py --live
+        self.reflexion_enabled = os.getenv("REFLEXION_ENABLED", "true").lower() == "true"
+        self.reflexion_confidence_threshold = float(os.getenv("REFLEXION_CONFIDENCE_THRESHOLD", "0.85"))
+
         # Environment variables
         self.database_url = os.getenv("DATABASE_URL", "")
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
