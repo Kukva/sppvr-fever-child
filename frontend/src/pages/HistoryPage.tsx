@@ -30,8 +30,7 @@ export const HistoryPage: React.FC = () => {
   };
 
   const handleOpenChat = (item: HistoryItemDisplay) => {
-    const url = `${window.location.origin}/consultation?session=${item.id}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    navigate(`/consultation?session=${item.id}`);
   };
 
   const handleDelete = async (id: string) => {

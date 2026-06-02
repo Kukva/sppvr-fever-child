@@ -7,6 +7,13 @@ from operator import add
 from datetime import datetime
 from enum import Enum
 
+try:
+    from app.config import settings as _settings
+    _SETTINGS_AVAILABLE = True
+except ImportError:
+    _settings = None
+    _SETTINGS_AVAILABLE = False
+
 
 def merge_patient_data(current: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
     """Редюсер для слияния данных пациента"""
@@ -285,11 +292,10 @@ def create_initial_state(
 ) -> GraphState:
     """Создание начального состояния графа"""
     now = datetime.now().isoformat()
-    try:
-        from app.config import settings
-        _run_mode = run_mode or getattr(settings, "run_mode", "full")
-        _max_cost = max_cost_units if max_cost_units is not None else getattr(settings, "max_cost_units", None)
-    except Exception:
+    if _SETTINGS_AVAILABLE and _settings is not None:
+        _run_mode = run_mode or getattr(_settings, "run_mode", "full")
+        _max_cost = max_cost_units if max_cost_units is not None else getattr(_settings, "max_cost_units", None)
+    else:
         _run_mode = run_mode or "full"
         _max_cost = max_cost_units
     

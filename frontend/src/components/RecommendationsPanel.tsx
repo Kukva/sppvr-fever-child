@@ -1,5 +1,6 @@
 import React from 'react';
-import { 
+import ReactMarkdown from 'react-markdown';
+import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
   InformationCircleIcon,
@@ -192,7 +193,7 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
   return (
     <div className="card">
       <div className="card-header">
-        <h3 className="card-title">Рекомендации ({recommendations.length})</h3>
+        <h3 className="card-title">Рекомендации</h3>
         <p className="card-description">
           Медицинские рекомендации на основе анализа симптомов
         </p>
@@ -296,11 +297,20 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-start space-x-2 mb-3">
-                    {getCategoryIcon(recommendation.category)}
-                    <p className="text-gray-700 text-sm leading-relaxed">
+                  <div className="mb-3 prose prose-sm max-w-none text-gray-700">
+                    <ReactMarkdown
+                      components={{
+                        h2: ({children}) => <h2 className="text-base font-semibold text-gray-900 mt-4 mb-1">{children}</h2>,
+                        h3: ({children}) => <h3 className="text-sm font-semibold text-gray-800 mt-3 mb-1">{children}</h3>,
+                        ul: ({children}) => <ul className="list-disc list-inside space-y-1 text-sm">{children}</ul>,
+                        ol: ({children}) => <ol className="list-decimal list-inside space-y-1 text-sm">{children}</ol>,
+                        li: ({children}) => <li className="text-gray-700">{children}</li>,
+                        strong: ({children}) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                        p: ({children}) => <p className="text-sm leading-relaxed mb-2">{children}</p>,
+                      }}
+                    >
                       {recommendation.description}
-                    </p>
+                    </ReactMarkdown>
                   </div>
 
                   <div className="flex items-center justify-between text-xs text-gray-500">

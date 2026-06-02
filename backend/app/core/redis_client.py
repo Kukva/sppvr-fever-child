@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any
 from datetime import timedelta
 import redis.asyncio as redis
 from app.config import settings
+from app.core.state import UrgencyLevel
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +240,6 @@ class RedisSessionManager:
         
         # Восстановление специальных объектов
         if "urgency_level" in state and state["urgency_level"]:
-            from app.core.state import UrgencyLevel
             try:
                 state["urgency_level"] = UrgencyLevel(state["urgency_level"])
             except ValueError:

@@ -8,7 +8,7 @@ import uuid
 import time
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
-from sqlalchemy import text
+from sqlalchemy import text, select
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,7 +38,11 @@ from app.core.metrics import get_performance_metrics
 from langchain_core.messages import HumanMessage
 from app.core.redis_client import get_rate_limiter
 from app.db.session import get_db, get_db_session, init_db
-from app.db.repositories import SessionRepository, MessageRepository, RecommendationRepository, FeedbackRepository, FeedbackRepository
+from app.db.repositories import (
+    SessionRepository, MessageRepository, RecommendationRepository,
+    FeedbackRepository, PatientDataRepository,
+)
+from app.db.models import AgentOutput
 from app.utils.logging import setup_logging
 from app.utils.metrics import get_metrics, track_api_metrics
 from app.services.pdf_service import PDFReportGenerator
@@ -689,6 +693,35 @@ async def send_message(message_data: MessageInput, request: Request):
                         content=result["response"],
                         agent_name=result.get("current_step")
                     )
+
+                # Сохраняем urgency_level в сессию, как только он определён
+                urgency = result.get("urgency_level")
+                urgency_str = None
+                if urgency:
+                    urgency_str = urgency.value if hasattr(urgency, "value") else str(urgency)
+                    session_repo = SessionRepository(db)
+                    await session_repo.update_session_urgency(message_data.session_id, urgency_str)
+
+                # Сохраняем рекомендации в БД при завершении синтеза
+                recommendations_data = result.get("recommendations") or {}
+                if recommendations_data and isinstance(recommendations_data, dict) and (
+                    recommendations_data.get("recommendations_text") or
+                    recommendations_data.get("primary_specialist")
+                ):
+                    rec_repo = RecommendationRepository(db)
+                    existing = await rec_repo.get_session_recommendations(message_data.session_id)
+                    if not existing:
+                        await rec_repo.create_recommendation(
+                            session_id=message_data.session_id,
+                            urgency_level=urgency_str or "routine",
+                            primary_specialist=recommendations_data.get("primary_specialist") or {},
+                            additional_specialists=recommendations_data.get("additional_specialists") or [],
+                            reasoning=recommendations_data.get("reasoning", ""),
+                            required_tests=recommendations_data.get("required_tests") or [],
+                            red_flags=recommendations_data.get("red_flags") or [],
+                            recommendations_text=recommendations_data.get("recommendations_text", ""),
+                        )
+                        logger.info(f"Recommendations saved to DB for session {message_data.session_id}")
         except Exception as db_error:
             logger.error(f"Database error for session {message_data.session_id}: {str(db_error)}")
             # Продолжаем обработку даже если сохранение в БД не удалось
@@ -931,7 +964,76 @@ async def chat_stream(websocket: WebSocket, session_id: str):
                     )
                     
                     logger.info(f"Message processed successfully for session {session_id}")
-                    
+
+                    # Сохраняем urgency, данные пациента и рекомендации в БД
+                    try:
+                        async with get_db_session() as db:
+                            urgency = result.get("urgency_level")
+                            urgency_str = None
+                            if urgency:
+                                urgency_str = urgency.value if hasattr(urgency, "value") else str(urgency)
+                                session_repo = SessionRepository(db)
+                                await session_repo.update_session_urgency(session_id, urgency_str)
+
+                            # Сохраняем данные пациента (температура, симптомы) из графа
+                            state_pd = result.get("patient_data") or {}
+                            if state_pd and isinstance(state_pd, dict) and state_pd.get("temperature_current"):
+                                pd_repo = PatientDataRepository(db)
+                                await pd_repo.create_or_update_patient_data(
+                                    session_id=session_id,
+                                    patient_data={
+                                        "temperature_current": state_pd.get("temperature_current"),
+                                        "temperature_max": state_pd.get("temperature_max"),
+                                        "duration_days": state_pd.get("duration_days"),
+                                        "symptoms": state_pd.get("symptoms") or [],
+                                        "red_flags": state_pd.get("red_flags") or [],
+                                        "anamnesis": state_pd.get("anamnesis") or {},
+                                        "lab_results": state_pd.get("lab_results") or {},
+                                    }
+                                )
+
+                            recommendations_data = result.get("recommendations")
+                            if recommendations_data and isinstance(recommendations_data, dict) and (
+                                recommendations_data.get("recommendations_text") or
+                                recommendations_data.get("primary_specialist")
+                            ):
+                                rec_repo = RecommendationRepository(db)
+                                existing = await rec_repo.get_session_recommendations(session_id)
+                                if not existing:
+                                    await rec_repo.create_recommendation(
+                                        session_id=session_id,
+                                        urgency_level=urgency_str or "routine",
+                                        primary_specialist=recommendations_data.get("primary_specialist") or {},
+                                        additional_specialists=recommendations_data.get("additional_specialists") or [],
+                                        reasoning=recommendations_data.get("reasoning", ""),
+                                        required_tests=recommendations_data.get("required_tests") or [],
+                                        red_flags=recommendations_data.get("red_flags") or [],
+                                        recommendations_text=recommendations_data.get("recommendations_text", ""),
+                                    )
+                                    logger.info(f"Recommendations saved to DB for session {session_id}")
+
+                            # Сохраняем шаги агентов в AgentOutput
+                            agent_workflow = result.get("agent_workflow") or []
+                            for step in agent_workflow:
+                                agent_key = step.get("agent_key", "unknown")
+                                ao = AgentOutput(
+                                    session_id=session_id,
+                                    agent_name=agent_key,
+                                    output={
+                                        "reasoning": step.get("reasoning", ""),
+                                        "title": step.get("title", agent_key),
+                                        "role": step.get("role"),
+                                    },
+                                    confidence=step.get("confidence"),
+                                    execution_time_ms=step.get("execution_time_ms"),
+                                )
+                                db.add(ao)
+                            if agent_workflow:
+                                await db.commit()
+                                logger.info(f"Agent outputs saved to DB for session {session_id}: {len(agent_workflow)} steps")
+                    except Exception as db_err:
+                        logger.error(f"WS DB save error for session {session_id}: {db_err}")
+
                     # Отправка результата (если клиент уже отключился — не логируем как ошибку)
                     if not await _safe_ws_send(websocket, {"type": "response", "data": result}):
                         break
@@ -987,45 +1089,139 @@ async def chat_stream(websocket: WebSocket, session_id: str):
 @app.get("/api/v1/sessions/{session_id}/recommendations")
 @track_api_metrics("GET", "/api/v1/sessions/{session_id}/recommendations")
 async def get_recommendations(session_id: str):
-    """Получение финальных рекомендаций"""
+    """Получение финальных рекомендаций (Redis → fallback БД)"""
     try:
-        # Получение состояния графа
+        # Пробуем из Redis/графа, но всегда проверяем DB для recommendations_text
         state = await graph_instance.get_session_state(session_id)
-        
-        if not state:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Проверка наличия рекомендаций
-        if not state.get("synthesis_output"):
-            raise HTTPException(status_code=404, detail="Recommendations not available")
-        
-        recommendations = state.get("recommendations", {})
-        
-        # Преобразование SpecialistInfo
-        primary_specialist = None
-        if recommendations.get("primary_specialist"):
-            primary_data = recommendations["primary_specialist"]
-            primary_specialist = SpecialistInfo(**primary_data)
-        
-        additional_specialists = []
-        for spec_data in recommendations.get("additional_specialists", []):
-            additional_specialists.append(SpecialistInfo(**spec_data))
-        
-        return RecommendationResponse(
-            session_id=session_id,
-            urgency_level=state.get("urgency_level", "routine"),
-            primary_specialist=primary_specialist,
-            additional_specialists=additional_specialists,
-            required_tests=recommendations.get("required_tests", []),
-            red_flags=recommendations.get("red_flags", []),
-            recommendations_text=recommendations.get("recommendations_text")
-        )
-        
+        db_rec = None
+        async with get_db_session() as _db:
+            db_rec = await RecommendationRepository(_db).get_session_recommendations(session_id)
+
+        if state and state.get("synthesis_output"):
+            recommendations = state.get("recommendations", {})
+            primary_specialist = None
+            if recommendations.get("primary_specialist"):
+                primary_specialist = SpecialistInfo(**recommendations["primary_specialist"])
+            additional_specialists = [
+                SpecialistInfo(**s) for s in recommendations.get("additional_specialists", [])
+            ]
+            # Берём recommendations_text из Redis или из БД (что непустее)
+            rec_text = recommendations.get("recommendations_text") or (db_rec.recommendations_text if db_rec else None)
+            return RecommendationResponse(
+                session_id=session_id,
+                urgency_level=state.get("urgency_level", "routine"),
+                primary_specialist=primary_specialist,
+                additional_specialists=additional_specialists,
+                required_tests=recommendations.get("required_tests", []),
+                red_flags=recommendations.get("red_flags", []),
+                recommendations_text=rec_text
+            )
+
+        # Fallback: читаем из БД
+        async with get_db_session() as db:
+            rec_repo = RecommendationRepository(db)
+            rec = await rec_repo.get_session_recommendations(session_id)
+            if not rec:
+                raise HTTPException(status_code=404, detail="Recommendations not available")
+            primary_specialist = None
+            if rec.primary_specialist:
+                try:
+                    primary_specialist = SpecialistInfo(**rec.primary_specialist)
+                except Exception:
+                    pass
+            additional_specialists = []
+            for s in (rec.additional_specialists or []):
+                try:
+                    additional_specialists.append(SpecialistInfo(**s))
+                except Exception:
+                    pass
+            urgency = rec.urgency_level or "routine"
+            return RecommendationResponse(
+                session_id=session_id,
+                urgency_level=urgency,
+                primary_specialist=primary_specialist,
+                additional_specialists=additional_specialists,
+                required_tests=rec.required_tests or [],
+                red_flags=rec.red_flags or [],
+                recommendations_text=rec.recommendations_text
+            )
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting recommendations for session {session_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get recommendations")
+
+
+@app.get("/api/v1/sessions/{session_id}/patient-data")
+async def get_session_patient_data(session_id: str):
+    """Получение данных пациента: БД → fallback Redis"""
+    try:
+        async with get_db_session() as db:
+            session_repo = SessionRepository(db)
+            session = await session_repo.get_session(session_id)
+            if not session:
+                raise HTTPException(status_code=404, detail="Session not found")
+            pd_repo = PatientDataRepository(db)
+            pd = await pd_repo.get_patient_data(session_id)
+
+        # Fallback на Redis если в БД нет температуры
+        redis_pd: dict = {}
+        if not pd or not pd.temperature_current:
+            state = await graph_instance.get_session_state(session_id)
+            if state:
+                redis_pd = state.get("patient_data") or {}
+
+        return {
+            "age_years": session.patient_age_years,
+            "age_months": session.patient_age_months,
+            "temperature": (pd.temperature_current if pd and pd.temperature_current
+                           else redis_pd.get("temperature_current")),
+            "symptoms": (pd.symptoms if pd and pd.symptoms
+                        else redis_pd.get("symptoms") or []),
+            "red_flags": pd.red_flags if pd else redis_pd.get("red_flags") or [],
+            "anamnesis": pd.anamnesis if pd else redis_pd.get("anamnesis") or {},
+            "lab_results": pd.lab_results if pd else redis_pd.get("lab_results") or {},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting patient data for session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get patient data")
+
+
+@app.get("/api/v1/sessions/{session_id}/agent-outputs")
+async def get_agent_outputs(session_id: str):
+    """Получение результатов агентов из БД"""
+    try:
+        async with get_db_session() as db:
+            session_repo = SessionRepository(db)
+            if not await session_repo.get_session(session_id):
+                raise HTTPException(status_code=404, detail="Session not found")
+            result = await db.execute(
+                select(AgentOutput)
+                .where(AgentOutput.session_id == session_id)
+                .order_by(AgentOutput.created_at.asc())
+            )
+            rows = result.scalars().all()
+            return {
+                "session_id": session_id,
+                "agent_outputs": [
+                    {
+                        "agent_name": r.agent_name,
+                        "output": r.output,
+                        "confidence": r.confidence,
+                        "execution_time_ms": r.execution_time_ms,
+                        "created_at": r.created_at.isoformat(),
+                    }
+                    for r in rows
+                ]
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting agent outputs for session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get agent outputs")
 
 
 @app.post("/api/v1/export/pdf/{session_id}")

@@ -19,6 +19,8 @@ export interface WebSocketContextType {
   disconnect: () => void;
   clearMessages: () => void;
   setInitialMessages: (messages: ChatMessage[]) => void;
+  setInitialAgentStatus: (status: AgentStatus) => void;
+  setInitialAgentWorkflow: (workflow: AgentWorkflowStep[]) => void;
   error: string | null;
   /** Ожидание ответа ассистента после отправки сообщения (для индикатора «печатает»). */
   awaitingAssistantResponse: boolean;
@@ -275,6 +277,14 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     newMessages.forEach(m => m.id && messagesRef.current.add(m.id));
   }, []);
 
+  const setInitialAgentStatus = useCallback((status: AgentStatus) => {
+    setAgentStatus(status);
+  }, []);
+
+  const setInitialAgentWorkflow = useCallback((workflow: AgentWorkflowStep[]) => {
+    setAgentWorkflow(workflow);
+  }, []);
+
   // Значение контекста
   const contextValue: WebSocketContextType = {
     isConnected,
@@ -290,6 +300,8 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     disconnect,
     clearMessages,
     setInitialMessages,
+    setInitialAgentStatus,
+    setInitialAgentWorkflow,
     error,
     awaitingAssistantResponse
   };

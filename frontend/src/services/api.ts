@@ -138,6 +138,21 @@ class ApiService {
     await this.api.delete(`/api/v1/sessions/${sessionId}`);
   }
 
+  async getSessionRecommendations(sessionId: string): Promise<any> {
+    const response = await this.api.get(`/api/v1/sessions/${sessionId}/recommendations`);
+    return response.data;
+  }
+
+  async getSessionAgentOutputs(sessionId: string): Promise<any> {
+    const response = await this.api.get(`/api/v1/sessions/${sessionId}/agent-outputs`);
+    return response.data;
+  }
+
+  async getSessionPatientData(sessionId: string): Promise<any> {
+    const response = await this.api.get(`/api/v1/sessions/${sessionId}/patient-data`);
+    return response.data;
+  }
+
   async createChatSession(patientData: any): Promise<ApiResponse<ChatSession>> {
     const response = await this.api.post('/api/v1/sessions', {
       doctor_id: null,

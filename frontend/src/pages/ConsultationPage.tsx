@@ -87,6 +87,8 @@ export const ConsultationPage: React.FC = () => {
     disconnect,
     clearMessages,
     setInitialMessages,
+    setInitialAgentStatus,
+    setInitialAgentWorkflow,
     isAgentProcessing,
   } = useWebSocket();
 
@@ -323,6 +325,86 @@ export const ConsultationPage: React.FC = () => {
           setInitialMessages(chatMessages);
           connect(session.id);
           hasSentInitialMessage.current = true;
+
+          // Загружаем рекомендации и агент-выводы из БД
+          try {
+            const [recRes, agentRes, pdRes] = await Promise.allSettled([
+              apiService.getSessionRecommendations(sessionIdFromUrl),
+              apiService.getSessionAgentOutputs(sessionIdFromUrl),
+              apiService.getSessionPatientData(sessionIdFromUrl),
+            ]);
+
+            if (recRes.status === 'fulfilled' && recRes.value) {
+              const rec = recRes.value?.data ?? recRes.value;
+              if (rec?.recommendations_text || rec?.primary_specialist) {
+                setRecommendations([{
+                  id: `rec_${sessionIdFromUrl}`,
+                  title: 'Клинические рекомендации',
+                  description: rec.recommendations_text || '',
+                  priority: rec.urgency_level === 'emergency' ? 'urgent'
+                    : rec.urgency_level === 'urgent' ? 'high' : 'medium',
+                  category: 'consultation' as const,
+                  agentId: 'synthesis',
+                  timestamp: new Date().toISOString(),
+                }]);
+              }
+            }
+
+            if (agentRes.status === 'fulfilled' && agentRes.value) {
+              const agentData = agentRes.value?.data ?? agentRes.value;
+              const outputs: any[] = agentData?.agent_outputs ?? [];
+
+              const AGENT_LABELS: Record<string, string> = {
+                triage: 'Триаж', intake: 'Сбор данных', synthesis: 'Синтез',
+                infection: 'Инфекционист', immune: 'Иммунолог', oncology: 'Онколог',
+                rare_disease: 'Редкие болезни', orchestrator: 'Оркестратор',
+                hypothesis_generator: 'Гипотезы', data_completeness_checker: 'Полнота данных',
+              };
+
+              // AgentStatus
+              if (outputs.length > 0) {
+                const agents = outputs.map((o: any, i: number) => ({
+                  id: `${o.agent_name}_${i}`,
+                  name: AGENT_LABELS[o.agent_name] || o.agent_name,
+                  type: (['triage', 'orchestrator'].includes(o.agent_name) ? 'coordinator' : 'specialist') as any,
+                  status: 'completed' as const,
+                  progress: 100,
+                  currentTask: o.agent_name,
+                  result: o.output,
+                }));
+                setInitialAgentStatus({ agents, overallProgress: 100, currentStep: 'feedback_requested' });
+
+                // AgentWorkflow
+                const workflow = outputs.map((o: any, i: number) => ({
+                  step: i + 1,
+                  agent_key: o.agent_name,
+                  title: AGENT_LABELS[o.agent_name] || o.agent_name,
+                  role: o.output?.role,
+                  reasoning: o.output?.reasoning || o.output?.most_likely || o.output?.response || '',
+                  confidence: o.confidence,
+                  execution_time_ms: o.execution_time_ms,
+                }));
+                setInitialAgentWorkflow(workflow);
+              }
+            }
+          if (pdRes.status === 'fulfilled' && pdRes.value) {
+              const pd = pdRes.value?.data ?? pdRes.value;
+              setPatient({
+                id: 'anonymous',
+                name: 'Пациент',
+                age: pd.age_years ?? 0,
+                ageMonths: pd.age_months ?? undefined,
+                weight: 0,
+                height: 0,
+                temperature: pd.temperature ?? 0,
+                symptoms: Array.isArray(pd.symptoms) ? pd.symptoms : [],
+                createdAt: session.createdAt,
+                updatedAt: session.updatedAt,
+              });
+            }
+          } catch (_) {
+            // Дополнительные данные опциональны
+          }
         } catch (e) {
           console.error('Error loading session:', e);
           toast.error('Не удалось загрузить сессию');
@@ -383,20 +465,16 @@ export const ConsultationPage: React.FC = () => {
     }
   }, [patient, sessionIdFromUrl]);
 
-  // Initialize WebSocket when chat session is created; switch session without full disconnect (service closes old socket and connects to new)
+  // Initialize WebSocket when chat session is created (only for new consultations — existing sessions connect inside the loading block above)
   useEffect(() => {
-    if (chatSession && chatSession.id) {
+    if (chatSession && chatSession.id && !sessionIdFromUrl) {
       clearMessages();
       connect(chatSession.id);
     }
-  }, [chatSession?.id, connect, clearMessages]);
+  }, [chatSession?.id, connect, clearMessages, sessionIdFromUrl]);
 
-  // Disconnect only when leaving the consultation page
-  useEffect(() => {
-    return () => {
-      disconnect();
-    };
-  }, [disconnect]);
+  // При уходе со страницы консультации не рвём WS явно — контекст управляет соединением.
+  // Разрыв disconnect() чистил бы eventListeners и следующая сессия не получала бы события.
 
   // Handle WebSocket connection established — отправка первого сообщения только один раз
   useEffect(() => {
@@ -839,28 +917,34 @@ export const ConsultationPage: React.FC = () => {
               <h3 className="card-title">Информация о пациенте</h3>
               <div className="space-y-2 text-sm">
                 <div>
-                  <strong>Имя:</strong> {patient.name}
+                  <strong>Имя:</strong> {patient.name || '—'}
                 </div>
-                <div>
-                  <strong>Возраст:</strong> {patient.age} лет
-                </div>
-                <div>
-                  <strong>Вес:</strong> {patient.weight} кг
-                </div>
-                <div>
-                  <strong>Рост:</strong> {patient.height} см
-                </div>
-                <div>
-                  <strong>Температура:</strong> {patient.temperature}°C
-                </div>
-                <div>
-                  <strong>Симптомы:</strong>
-                  <ul className="mt-1 ml-4 list-disc">
-                    {patient.symptoms.map((symptom, index) => (
-                      <li key={index}>{symptom}</li>
-                    ))}
-                  </ul>
-                </div>
+                {(patient.age > 0 || (patient.ageMonths ?? 0) > 0) && (
+                  <div>
+                    <strong>Возраст:</strong>{' '}
+                    {patient.age > 0 ? `${patient.age} лет` : ''}{' '}
+                    {(patient.ageMonths ?? 0) > 0 ? `${patient.ageMonths} мес` : ''}
+                  </div>
+                )}
+                {patient.weight > 0 && (
+                  <div><strong>Вес:</strong> {patient.weight} кг</div>
+                )}
+                {patient.height > 0 && (
+                  <div><strong>Рост:</strong> {patient.height} см</div>
+                )}
+                {patient.temperature > 0 && (
+                  <div><strong>Температура:</strong> {patient.temperature}°C</div>
+                )}
+                {patient.symptoms.length > 0 && (
+                  <div>
+                    <strong>Симптомы:</strong>
+                    <ul className="mt-1 ml-4 list-disc">
+                      {patient.symptoms.map((symptom, index) => (
+                        <li key={index}>{symptom}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {patient.additionalInfo && (
                   <div>
                     <strong>Доп. информация:</strong>
