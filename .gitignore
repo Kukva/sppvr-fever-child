@@ -259,7 +259,7 @@ dist
 
 # Gatsby files
 .cache/
-public
+# public  # закомментировано: frontend/public/ содержит статику Vite (не Gatsby-build)
 
 # Storybook build outputs
 .out
