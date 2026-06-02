@@ -20,6 +20,7 @@ export interface HistoryItemDisplay {
   preview: string;
   date: Date;
   messagesCount: number;
+  urgency_level?: string;
 }
 
 interface HistoryScreenProps {
@@ -28,6 +29,22 @@ interface HistoryScreenProps {
   onStartNew: () => void;
   onOpenChat?: (item: HistoryItemDisplay) => void;
   onDelete?: (id: string) => void;
+}
+
+function UrgencyBadge({ level }: { level?: string }) {
+  if (!level) return null;
+  const map: Record<string, { label: string; className: string }> = {
+    emergency: { label: 'Экстренно', className: 'bg-red-100 text-red-700 border-red-200' },
+    urgent:    { label: 'Срочно',    className: 'bg-orange-100 text-orange-700 border-orange-200' },
+    routine:   { label: 'Плановое', className: 'bg-green-100 text-green-700 border-green-200' },
+  };
+  const config = map[level];
+  if (!config) return null;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${config.className}`}>
+      {config.label}
+    </span>
+  );
 }
 
 function formatDate(date: Date) {
@@ -195,9 +212,12 @@ export function HistoryScreen({
                         <ChatBubbleLeftRightIcon className="w-5 h-5 text-figma-accent" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-figma-ink text-lg mb-1 group-hover:text-figma-accent transition-colors">
-                          {item.title}
-                        </h3>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h3 className="font-medium text-figma-ink text-lg group-hover:text-figma-accent transition-colors">
+                            {item.title}
+                          </h3>
+                          <UrgencyBadge level={item.urgency_level} />
+                        </div>
                         <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
                           <span className="flex items-center gap-1">
                             <ClockIcon className="w-4 h-4 shrink-0 text-figma-accent" />
@@ -273,9 +293,10 @@ export function mapSessionsToHistoryItems(
       title:
         s.patientName && s.patientName !== 'Anonymous'
           ? s.patientName
-          : s.summary,
-      preview: s.summary,
+          : `Консультация ${new Date(s.date).toLocaleDateString('ru-RU')}`,
+      preview: s.firstMessagePreview || s.summary,
       date: new Date(s.date),
-      messagesCount: s.recommendationsCount ?? 0,
+      messagesCount: s.messageCount ?? 0,
+      urgency_level: s.urgency_level,
     }));
 }

@@ -134,6 +134,10 @@ class ApiService {
     return response.data;
   }
 
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.api.delete(`/api/v1/sessions/${sessionId}`);
+  }
+
   async createChatSession(patientData: any): Promise<ApiResponse<ChatSession>> {
     const response = await this.api.post('/api/v1/sessions', {
       doctor_id: null,

@@ -8,10 +8,11 @@ import {
   type HistoryItemDisplay,
 } from '../components/HistoryScreen';
 import { useSessionHistory } from '../hooks/useApi';
+import apiService from '../services/api';
 
 export const HistoryPage: React.FC = () => {
   const navigate = useNavigate();
-  const { data: sessionsData, loading, error } = useSessionHistory();
+  const { data: sessionsData, loading, error, refetch } = useSessionHistory();
 
   const historyItems = useMemo<HistoryItemDisplay[]>(
     () => mapSessionsToHistoryItems(sessionsData?.sessions ?? []),
@@ -33,9 +34,14 @@ export const HistoryPage: React.FC = () => {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const handleDelete = (id: string) => {
-    // API удаления сессии будет подключён при появлении эндпоинта на бэкенде
-    toast('Удаление сессий пока недоступно', { icon: 'ℹ️' });
+  const handleDelete = async (id: string) => {
+    try {
+      await apiService.deleteSession(id);
+      toast.success('Консультация удалена');
+      refetch();
+    } catch {
+      toast.error('Не удалось удалить консультацию');
+    }
   };
 
   return (

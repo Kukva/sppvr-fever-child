@@ -135,6 +135,14 @@ class SessionRepository(BaseRepository):
         result = await self.db.execute(stmt)
         return result.scalar() or 0
 
+    async def delete_session(self, session_id: str) -> bool:
+        session = await self.get_session(session_id)
+        if not session:
+            return False
+        await self.db.delete(session)
+        await self.db.commit()
+        return True
+
 
 class MessageRepository(BaseRepository):
     """Репозиторий для работы с сообщениями"""

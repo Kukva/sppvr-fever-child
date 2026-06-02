@@ -132,6 +132,7 @@ class SessionListItem(BaseModel):
     patient_age_months: Optional[int] = None
     message_count: int = 0
     recommendations_count: int = 0
+    first_message_preview: Optional[str] = None
 
 
 class SessionsListResponse(BaseModel):
@@ -139,9 +140,6 @@ class SessionsListResponse(BaseModel):
     total: int
     limit: int
     offset: int
-    created_at: str
-    updated_at: str
-    status: str
 
 
 class ErrorResponse(BaseModel):
@@ -1140,16 +1138,23 @@ async def get_sessions_list(limit: int = 50, offset: int = 0):
             # Формируем список с дополнительной информацией
             session_items = []
             for session in sessions:
-                # Получаем количество сообщений
+                # Получаем сообщения
                 messages = await message_repo.get_session_messages(session.id)
                 message_count = len(messages)
-                
+
+                # Первое сообщение пользователя как превью
+                first_user_msg = next(
+                    (m.content for m in messages if m.role == 'user'),
+                    None
+                )
+                preview = (first_user_msg[:120] + '…') if first_user_msg and len(first_user_msg) > 120 else first_user_msg
+
                 # Получаем количество рекомендаций
                 recommendation = await recommendation_repo.get_session_recommendations(session.id)
                 recommendations_count = 1 if recommendation else 0
-                
+
                 session_items.append(SessionListItem(
-                    session_id=session.id,
+                    session_id=str(session.id),
                     created_at=session.created_at.isoformat(),
                     updated_at=session.updated_at.isoformat(),
                     status=session.status,
@@ -1157,7 +1162,8 @@ async def get_sessions_list(limit: int = 50, offset: int = 0):
                     patient_age_years=session.patient_age_years,
                     patient_age_months=session.patient_age_months,
                     message_count=message_count,
-                    recommendations_count=recommendations_count
+                    recommendations_count=recommendations_count,
+                    first_message_preview=preview
                 ))
             
             return SessionsListResponse(
@@ -1170,6 +1176,23 @@ async def get_sessions_list(limit: int = 50, offset: int = 0):
     except Exception as e:
         logger.error(f"Error getting sessions list: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get sessions list")
+
+
+@app.delete("/api/v1/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Удаление сессии и всех связанных данных"""
+    try:
+        async with get_db_session() as db:
+            session_repo = SessionRepository(db)
+            deleted = await session_repo.delete_session(session_id)
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Session not found")
+            return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
 @app.get("/api/v1/sessions/{session_id}/history")

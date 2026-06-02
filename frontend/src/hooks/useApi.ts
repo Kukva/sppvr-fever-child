@@ -91,25 +91,28 @@ export const useSessionHistory = (limit: number = 50, offset: number = 0) => {
     
     try {
       const result = await apiService.getSessionsList(limit, offset);
-      // Map API response to SessionHistory. API does not provide patient_name or first message.
-      const sessions: SessionHistory[] = result.data.sessions.map((s: any) => ({
+      const raw = (result as any).sessions ? result as any : (result as any).data;
+      const sessions: SessionHistory[] = (raw.sessions ?? []).map((s: any) => ({
         id: s.session_id,
         patientName: 'Anonymous',
         date: s.created_at,
         status: s.status as 'completed' | 'paused' | 'active',
-        summary: `Сессия от ${new Date(s.created_at).toLocaleDateString('ru-RU')}`,
+        summary: s.first_message_preview || `Сессия от ${new Date(s.created_at).toLocaleDateString('ru-RU')}`,
         recommendationsCount: s.recommendations_count || 0,
+        messageCount: s.message_count || 0,
+        urgency_level: s.urgency_level,
+        firstMessagePreview: s.first_message_preview,
       }));
-      
-      setState({ 
-        data: { 
-          sessions, 
-          total: result.data.total, 
-          limit: result.data.limit, 
-          offset: result.data.offset 
-        }, 
-        loading: false, 
-        error: null 
+
+      setState({
+        data: {
+          sessions,
+          total: raw.total ?? 0,
+          limit: raw.limit ?? limit,
+          offset: raw.offset ?? offset,
+        },
+        loading: false,
+        error: null,
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch sessions';

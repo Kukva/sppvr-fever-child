@@ -175,6 +175,9 @@ export interface SessionHistory {
   status: 'completed' | 'paused' | 'active';
   summary: string;
   recommendationsCount: number;
+  messageCount: number;
+  urgency_level?: string;
+  firstMessagePreview?: string;
 }
 
 // Типы для форм
