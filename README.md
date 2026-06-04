@@ -188,22 +188,6 @@ curl http://localhost:8000/health
 - **Prometheus**: http://localhost:9090
 - **Grafana**: http://localhost:3001 (admin/admin)
 
-## Документация
-
-### Настройка и развертывание
-
-1. **[YANDEX_CLOUD_SETUP.md](./YANDEX_CLOUD_SETUP.md)** - Подробная инструкция по получению ключей Yandex Cloud
-2. **[QUICK_START.md](./QUICK_START.md)** - Быстрый старт за 5 минут
-3. **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Руководство для разработчиков
-4. **[PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md)** - Полный обзор проекта
-
-### Архитектурная документация
-
-1. **[architecture_plan.md](architecture_plan.md)** - Общая архитектура, LangGraph, интеграция с AI Studio
-2. **[architecture_plan_part2.md](architecture_plan_part2.md)** - База данных, логирование, мониторинг, PDF экспорт
-3. **[architecture_plan_part3.md](architecture_plan_part3.md)** - Развертывание, требования, roadmap
-4. **[ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md)** - 8 детальных диаграмм архитектуры
-
 ### API документация
 
 После запуска системы доступна по адресу: http://localhost:8000/docs
